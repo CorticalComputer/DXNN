@@ -1,0 +1,7 @@
+*.beam
+Mnesia*
+benchmarks/
+fx_tables/
+*~
+*.dump
+Project_DX
