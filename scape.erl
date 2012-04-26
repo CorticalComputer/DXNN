@@ -95,7 +95,6 @@ handle_call({actuator,AvatarType,Command,Output},{From_PId,_Ref},State)->
 		_ ->
 			Avatars = State#scape.avatars,
 			Avatar = lists:keyfind(From_PId, 2, Avatars),
-%			U_Avatar=check_borders(scape:Command(Avatar,Output),State#scape.borders),
 			U_Avatar = scape:Command(Avatar#avatar{kills=0},Output),
 		%	io:format("Avatar_Id:~p Energy:~p~n",[U_Avatar#avatar.id,U_Avatar#avatar.energy]),
 			case (U_Avatar#avatar.energy > 0) and (U_Avatar#avatar.age < 20000) of
@@ -112,8 +111,6 @@ handle_call({actuator,AvatarType,Command,Output},{From_PId,_Ref},State)->
 					{{0,Fitness},State#scape{avatars = collision_detection(U_Avatar,lists:keyreplace(From_PId, 2, Avatars, U_Avatar))}};
 				false ->
 %					io:format("Avatar:~p Destroyed:~n",[From_PId]),
-					%Kills = U_Avatar#avatar.kills,
-					%Fitness = Kills,
 					io:format("Avatar:~p died at age:~p~n",[U_Avatar#avatar.id,U_Avatar#avatar.age]),
 					%io:format("Process info:~p~n",[process_info(self(),[message_queue_len,messages])]),
 					{{1,0},destroy_avatar(From_PId,State)}
@@ -958,3 +955,17 @@ obedience_fitness(Command,Beacon)->
 	%BEACON:
 	%distance to beacon, angle to beacon, 1/abs(DistanceFromBeacon-RequestedDistance)
 	void.
+	
+epitopes()->
+	spawn(scape,db,[]).
+db()->
+	ets:file2tab(abc_pred10),
+	ets:file2tab(abc_pred12),
+	ets:file2tab(abc_pred14),
+	ets:file2tab(abc_pred16),
+	ets:file2tab(abc_pred18),
+	ets:file2tab(abc_pred20),
+	receive
+		terminate ->
+			ok
+	end.

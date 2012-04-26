@@ -61,7 +61,6 @@ loop(S)->
 			New_ScapePId = gen_server:call(polis,{get_scape,ScapeType}),
 			visor:loop(S#state{scape=New_ScapePId});
 		{Scape_PId,draw_object,Object}->
-			%io:format("YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY ~p~n",[now()]),
 			%io:format("~p~n",[Object]),
 			Id=draw_object(S#state.canvas,Object),
 			Scape_PId ! {self(),Id},
@@ -85,7 +84,6 @@ loop(S)->
 			io:format("Visor unsubscribed from:~p and terminated.~n",[S#state.scape])
 	after S#state.update_rate ->
 		%io:format("Visor is refreshing.~n"),
-		%io:format("YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY ~p~n",[now()]),
 		gen_server:cast(S#state.scape,{self(),redraw,S#state.filter}),
 		visor:loop(S)
 	end.

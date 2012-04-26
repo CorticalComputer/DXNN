@@ -1,26 +1,15 @@
-%% This source code and work is provided and developed by DXNN Research Group WWW.DXNNResearch.COM
-%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% This source code and work is provided and developed by Gene I. Sher & DXNN Research Group WWW.DXNNResearch.COM
+%
 %Copyright (C) 2009 by Gene Sher, DXNN Research Group, CorticalComputer@gmail.com
 %All rights reserved.
 %
 %This code is licensed under the version 3 of the GNU General Public License. Please see the LICENSE file that accompanies this project for the terms of use.
+%%%%%%%%%%%%%%%%%%%% Deus Ex Neural Network :: DXNN %%%%%%%%%%%%%%%%%%%%
 
 -module(agent_evo_strat).
 -compile(export_all).
 -include("records.hrl").
-
-%-record(agent_evo_strat,{
-%	tuning_mutation_range = math:pi(),%From -2Pi to Pi, starts of with a range of -Pi to Pi.
-%	tuning_annealing_flag = false,%true|false
-%	anealing_parameter = 0.5,%Standard: math:pi()*math:pow(0.5,Age) tuning_mutation_range*math:pow(anealing_parameter,Age), ranges from 0 to 1, where 1 is no anealing, and 0 is stop evolving.
-%	topological_mutation_prob = 1,%Standard: Range from 1 to 1/sqrt(Tot_Neurons), Multiplier range: 1 to sqrt(Tot_Neurons).
-%	topological_annealing_flag = false,%true|false
-%	neuron_perturbation_prob = 1,%Standard: 1/sqrt(TotNeurons) Probability of choosing a neuron for perturbation, multiplier: 1 to sqrt(TotNeurons)
-%	weight_perturbation_prob = 1,%Standard: 1/sqrt(TotWeights) Probability of choosing a weight for perturbation, multiplier: 1 to sqrt(TotWeights)
-%	strategies_mutation_prob = 0,%Probability of mutating an evolutionary strategies parameter, increments and decrements based on how far from the edge: 0-100%.
-%	active_neuron_selection_type = dynamic_random,%What type to use to select active neurons: %[dynamic|active|recent|current|all|dynamic_random|active_random|recent_random|current_random|all_random]
-%	active_neuron_selection_parameter = undefined %Augment the parameter of selection, dependent on type
-%}).
 
 init()->
 	#agent_evo_strat{

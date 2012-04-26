@@ -581,7 +581,7 @@ plane_encoded(HRes,VRes,S)->
 	fx_GetPriceList(_Table,EndKey,0,Acc)->
 %		io:format("EndKey:~p~n",[EndKey]),
 		Acc;
-	fx_GetPriceList(_Table,'end_of_table',_Index,Acc)->
+	fx_GetPriceList(_Table,'$end_of_table',_Index,Acc)->
 		exit("fx_GetPriceList, reached end_of_table");
 	fx_GetPriceList(Table,Key,Index,Acc) ->
 		R = fx:lookup(Table,Key),
@@ -726,7 +726,7 @@ next(TableName,Key)->
 prev(TableName,Key)->
 	ets:prev(TableName,Key).
 
-prev(TableName,'end_of_table',prev,_Index)->
+prev(TableName,'$end_of_table',prev,_Index)->
 	ets:first(TableName);
 prev(_TableName,Key,prev,0)->
 	Key;

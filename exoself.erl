@@ -204,7 +204,6 @@ handle_call({weight_mutate},{Cx_PId,_Ref}, S)->
 			choose_randomNIdPs(MutationP,ChosenN_IdPs)
 	end,
 	%io:format("NIdPs:~p~n",[NIdPs]),
-	%NPIdPs = [{ets:lookup_element(IdsNPids,NId,2),Spread} || {NId,Spread} <- NIdPs],
 	case Annealing of
 		true ->		
 			[ets:lookup_element(IdsNPids,NId,2) ! {self(),gt,weight_mutate,Spread} || {NId,Spread} <- NIdPs];
@@ -212,13 +211,11 @@ handle_call({weight_mutate},{Cx_PId,_Ref}, S)->
 			[ets:lookup_element(IdsNPids,NId,2) ! {self(),gt,weight_mutate,?DELTA_MULTIPLIER} || {NId,_Spread} <- NIdPs]
 	end,
 	%io:format("N_Ids:~p NPIdPs:~p~n",[N_Ids,NPIdPs]),
-	%put(prev_RandPIds,NPIdPs),
 	Tot_Mutations = get(tot_mutations),
 	put(tot_mutations,Tot_Mutations+1),
 	{reply, done,S};
 
 handle_call({weight_save},{Cx_PId,_Ref},S)->
-	%case SCType of
 	DX=S#state.dx,
 	N_Ids = DX#dx.n_ids,
 	IdsNPids = S#state.ids_n_pids,
@@ -231,20 +228,11 @@ handle_call({weight_revert},{Cx_PId,_Ref}, S)->
 %	io:format("DX:~p~n",[DX]),
 	Summary = DX#dx.summary,
 	[ets:lookup_element(IdsNPids,NId,2) ! {self(),gt,weight_revert} || NId <- DX#dx.n_ids],
-%	io:format("Weight reverting.~n"),
-%	Cx_Id = DX#dx.cx_id,
-%	Cx_PId = ets:lookup_element(IdsNPids,Cx_Id,2),
-%	Cx_PId ! {self(), revert_IProfile},
-%	receive
-%		{Cx_PId,ready}->
-%			done
-%	end,
 	{reply, done, S};
 
 handle_call({backup_request},{Cx_PId,_Ref},S)->
 	DX=S#state.dx,
 	IdsNPids = S#state.ids_n_pids,
-	%CurGenN_Ids = S#state.active_nids,
 	
 	backup_DX(DX,IdsNPids),
 %	io:format("Backup of DX: ~p completed.~n",[DX#dx.id]),
@@ -441,7 +429,6 @@ link_CerebralUnits(DX,IdsNPids,OpMode,Smoothness)->
 	link_Neurons(IdsNPids,DX#dx.n_ids),
 	link_Cortex(IdsNPids,DX#dx.cx_id,OpMode,Smoothness).
 
-	%-record(neuron,{id,ivl,i,ovl,o,lt,ro,type,dwp,su_id,generation}). %%%id = {{LayerIndex,NumId},neuron}
 	link_Neurons(IdsNPids,[N_Id|N_Ids])->
 		[N] = mnesia:dirty_read({neuron,N_Id}),
 		%io:format("~p~n",[N]),
@@ -503,7 +490,6 @@ link_CerebralUnits(DX,IdsNPids,OpMode,Smoothness)->
 			lists:reverse(Acc).
 
 deactivate_DX(DX,IdsNPids)->
-	%[DX] = mnesia:dirty_read({dx,DX_Id}),
 	Cx_Id = DX#dx.cx_id,
 	[Cx] = mnesia:dirty_read({cortex,Cx_Id}),
 	[ets:lookup_element(IdsNPids,Id,2) ! {self(),terminate} || Id <- DX#dx.n_ids],

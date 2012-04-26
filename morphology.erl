@@ -156,7 +156,7 @@ forex_trader(sensors)->
 	GraphSensors = [#sensor{name=fx_GraphSensor,id=fx_id,format={symetric,[HRes,VRes]},tot_vl=HRes*VRes,parameters=[HRes,VRes]} ||
 		HRes <-[100], VRes<-[100]],
 	InternalSensors = [#sensor{name=fx_Internals,id=fx_id,format=no_geo,tot_vl=3,parameters=[3]}],%[Long|Short|Void,Value]
-	GraphSensors.%++InternalSensors.
+	LinearSensors.%++InternalSensors.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Flatlander %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
 %{2,{actuator,move_2d,cell_id,[2]}},
@@ -206,7 +206,24 @@ prey(sensors)->
 	%Communications = [{sensor,hear,cell_id,no_geo,Density,[Spread,Density,ROffset]} || Spread <-[Pi/2], Density <-[10], ROffset<-[Pi*0/2]],
 	%lists:append([Coned_Scanners,Distance_Scanners,Color_Scanners,Stat_Readers]).
 	Color_Scanners++Distance_Scanners++Orders++Beacons.%++Communications.%++Energy_Scanners++Stat_Readers.
-	
+
+epitopes(actuators)->
+	TableName=abc_pred16,
+	SequenceLength=16,
+	StartIndex=1,
+	EndIndex=840,
+	StartBenchIndex=841,
+	EndBenchIndex=1120,
+	[#actuator{name=abc_pred,id=cell_id,format=no_geo,tot_vl=1,parameters=[TableName,StartIndex,EndIndex,StartBenchIndex,EndBenchIndex]}];
+epitopes(sensors)->
+	TableName=abc_pred16,
+	SequenceLength=16,
+	StartIndex=1,
+	EndIndex=840,
+	StartBenchIndex=841,
+	EndBenchIndex=1120,
+	[#sensor{name=abc_pred,id=fx_id,format=no_geo,tot_vl=SequenceLength,parameters=[TableName,StartIndex,EndIndex,StartBenchIndex,EndBenchIndex]}].
+
 create_format(Type,Precurser)->
 	case Type of
 		no_geo ->

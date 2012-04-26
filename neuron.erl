@@ -27,20 +27,6 @@ prep(ExoSelf)->
 			%io:format("Neuron:Prep:: InitState:~p~n",[InitState]),
 			{ExoSelf,Neuron_Id,SU_Id,_TotIVL,I,_TotOVL,O,LT,RO,DWP} = InitState,
 			fanout(RO,{self(),forward,[?RO_SIGNAL]}),%lists:duplicate(TotOVL,0)}),
-%			io:format("Prep:~p DWP:~p~n",[Neuron_Id,DWP]),
-%			S = #state{
-%				exoself = ExoSelf,
-%				id = Neuron_Id,
-%				su_id = SU_Id,
-%				i = I,
-%				im = I,
-%				i_acc = [],
-%				o = O,
-%				om = O,
-%				lt = LT,
-%				dwp = DWP,
-%				dwpm = DWP,
-%				ro = RO}
 			neuron:neuron(ExoSelf,Neuron_Id,SU_Id,{I,I},[],{O,O},LT,{DWP,DWP},RO)
 	end.
 
@@ -57,7 +43,6 @@ neuron(ExoSelf,Neuron_Id,SU_Id,{[{IPid,_IVL}|I],IM},IAcc,{[OPid|O],OM},LT,{DWP,D
 					mutate_DWP(DWP,MutationP,DMultiplier,Adapter,[]);
 				false ->
 					{Weight,Bias} = DWP,
-					%DMultiplier = ?DELTA_MULTIPLIER,
 					WLimit = ?SAT_LIMIT,
 					case random:uniform(2) of
 						1 ->

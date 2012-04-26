@@ -30,7 +30,7 @@
 %-define(TOT_INIT_SPECIES,1).
 %Morphologies:pole2_balancing3,prey,forex_trader, xor_mimic
 -define(EFF,0.05). %Efficiency., TODO: this should further be changed from absolute number of neurons, to diff in lowest or avg, and the highest number of neurons
--define(INIT_CONSTRAINTS,[#constraint{morphology=Morphology,sc_types=SC_Types, sc_neural_plasticity=[none], sc_hypercube_plasticity=[none],sc_hypercube_linkform = Substrate_LinkForm,sc_neural_linkform=LinkForm}|| Morphology<-[prey,flatlander],Substrate_LinkForm <- [[jordan_recurrent]], LinkForm<-[recursive],SC_Types<-[[neural]]]).
+-define(INIT_CONSTRAINTS,[#constraint{morphology=Morphology,sc_types=SC_Types, sc_neural_plasticity=[none], sc_hypercube_plasticity=[none],sc_hypercube_linkform = Substrate_LinkForm,sc_neural_linkform=LinkForm}|| Morphology<-[epitopes],Substrate_LinkForm <- [[feedforward]], LinkForm<-[recursive],SC_Types<-[[neural]]]).
 -define(SURVIVAL_PERCENTAGE,0.5).
 -define(SPECIE_SIZE_LIMIT,10).
 -define(INIT_SPECIE_SIZE,10).

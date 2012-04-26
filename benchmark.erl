@@ -1,9 +1,12 @@
-%% This source code and work is provided and developed by DXNN Research Group WWW.DXNNResearch.COM
-%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% This source code and work is provided and developed by Gene I. Sher & DXNN Research Group WWW.DXNNResearch.COM
+%
 %Copyright (C) 2009 by Gene Sher, DXNN Research Group, CorticalComputer@gmail.com
 %All rights reserved.
 %
 %This code is licensed under the version 3 of the GNU General Public License. Please see the LICENSE file that accompanies this project for the terms of use.
+%%%%%%%%%%%%%%%%%%%% Deus Ex Neural Network :: DXNN %%%%%%%%%%%%%%%%%%%%
+
 -module(benchmark).
 -compile(export_all).
 -include("forex_db.hrl").
@@ -15,7 +18,7 @@
 -define(BENCHMARK_MORPHOLOGIES,[forex_trader]).
 -define(DEFAULT_OPMODE,gt).
 -define(DEFAULT_ST,competition).
--define(CONSTRAINTS,[#constraint{morphology=Morphology,sc_types=SC_Types, sc_hypercube_plasticity=[none],sc_neural_linkform=LinkForm}|| Morphology<-[forex_trader],LinkForm<-[feedforward], SC_Types<-[[hypercube]]]).
+-define(CONSTRAINTS,[#constraint{morphology=Morphology,sc_types=SC_Types, sc_hypercube_plasticity=[none],sc_neural_linkform=LinkForm}|| Morphology<-[epitopes],LinkForm<-[feedforward], SC_Types<-[[hypercube]]]).
 -record(state,{pm_parameters,table_name,run_index=1,tot_evaluations=0,tot_generations=0,goal_status,tunning_status,success_acc=[],failure_acc=[],diversity_acc=[]}).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %Starts and ends Neural Networks with various preset parameters and options, and polls the logger for information about each run.
@@ -484,7 +487,6 @@ alife_benchmark(Config,Index,RunLength,State,Heartbeat,Acc)->
 	
 -record(graph,{morphology,avg_neurons=[],neurons_std=[],avg_fitness=[],fitness_std=[],max_fitness=[],min_fitness=[],avg_diversity=[],diversity_std=[],evaluations=[],evaluation_Index=[]}).
 -record(avg,{avg_neurons=[],neurons_std=[],avg_fitness=[],fitness_std=[],max_fitness=[],min_fitness=[],avg_diversity=[],diversity_std=[],evaluations=[]}).
-%-record(stat,{avg_subcores,subcores_std,avg_neurons,neurons_std,avg_fitness,fitness_std,max_fitness,min_fitness,avg_diversity,evaluations,time_stamp}).
 pg(FileName)->
 	pg(FileName,FileName).
 pg(FileName,Graph_Postfix)->
@@ -649,14 +651,6 @@ genplot_all([List|Lists],Acc1,Acc2,Acc3)->
 	end;
 genplot_all([],Acc1,Acc2,Acc3)->
 	genplot_all(Acc1,[],[],[{functions:avg(Acc2),lists:min(Acc2),lists:max(Acc2)}|Acc3]).
-
-%genplot_max(Lists)->
-%	genplot_max(Lists,[]).
-%	genplot_max([L|Lists],Acc)->
-%		genplot_max(Lists,[{lists:max(L),0}|Acc]);
-%	genplot_max([],Acc)->
-%		StepSize=25000/length(Acc),
-%		print_plot(StepSize,StepSize,Acc).
 		
 	print_plot(Index,[{Val,Std}|List])->
 		io:format("~p  ~p  ~p~n",[Index,Val,Std]),

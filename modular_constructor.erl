@@ -82,8 +82,6 @@ construct_CortexTechnome(DX_Id,Generation,SpecCon)->
 					construct_FirstNeuroLayerTechnome(Cx_Id,Generation,LLIds,FL_IVLs,lists:duplicate(length(FLIds),Cx_Id),FLIds,SpecCon),
 					construct_LastNeuroLayerTechnome(Cx_Id,Generation,FLIds,LLIds,SpecCon)%
 			end,
-			%C_CF = [{Actuator,LLIds}],
-			%C_CT = [{Sensor,lists:zip(FLIds,CT_Tags)}] 
 			%io:format("C_CF:~p~nC_CT:~p~n",[{Actuators,ClusteredLLIds},{Sensors,FLIds,CT_Tags}]),
 			C_CF = [{SCF,SCF_Ids} || {SCF,SCF_Ids}<-lists:zip(SubstrateCF,ClusteredLLIds)],
 			C_CT = [{SCT,[{FLId,CT_Tag}]} || {SCT,FLId,CT_Tag}<-lists:zip3(SubstrateCT,FLIds,CT_Tags)];
@@ -124,8 +122,6 @@ construct_CortexTechnome(DX_Id,Generation,SpecCon)->
 					construct_FirstNeuroLayerTechnome(Cx_Id,Generation,LLIds,FL_IVLs,lists:duplicate(length(FLIds),Cx_Id),FLIds,SpecCon),
 					construct_LastNeuroLayerTechnome(Cx_Id,Generation,FLIds,LLIds,SpecCon)%
 			end,
-			%C_CF = [{Actuator,LLIds}],
-			%C_CT = [{Sensor,lists:zip(FLIds,CT_Tags)}] 
 			%io:format("C_CF:~p~nC_CT:~p~n",[{Actuators,ClusteredLLIds},{Sensors,FLIds,CT_Tags}]),
 			C_CF = [{Actuator,Actuator_Ids} || {Actuator,Actuator_Ids}<-lists:zip(Actuators,ClusteredLLIds)],
 			C_CT = [{Sensor,[{FLId,CT_Tag}]} || {Sensor,FLId,CT_Tag}<-lists:zip3(Sensors,FLIds,CT_Tags)]

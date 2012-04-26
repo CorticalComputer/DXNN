@@ -1,9 +1,11 @@
-%% This source code and work is provided and developed by DXNN Research Group WWW.DXNNResearch.COM
-%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% This source code and work is provided and developed by Gene I. Sher & DXNN Research Group WWW.DXNNResearch.COM
+%
 %Copyright (C) 2009 by Gene Sher, DXNN Research Group, CorticalComputer@gmail.com
 %All rights reserved.
 %
 %This code is licensed under the version 3 of the GNU General Public License. Please see the LICENSE file that accompanies this project for the terms of use.
+%%%%%%%%%%%%%%%%%%%% Deus Ex Neural Network :: DXNN %%%%%%%%%%%%%%%%%%%%
 
 -module(cortex).
 -compile(export_all).
@@ -15,7 +17,6 @@
 -define(SAT_LIMIT,math:pi()).
 -record(state,{type,plasticity,morphology,specie_id,sensors,actuators,cf,ct,complexity,op_mode,max_attempts,dimensions,densities}).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%TODOs: SCF - modular_none, abcn
 gen(ExoSelf,Node)->
 	PId = spawn(Node,cortex,prep,[ExoSelf]),
 	{ok, PId}.
@@ -65,7 +66,6 @@ prep(ExoSelf)->
 					OpMode
 			end,
 %			io:format("CortexInit:~p~n",[{ExoSelf,Id,CF,CT,OpMode}]),
-			%cortex:cortex(ExoSelf,Id,{CF,CF},[],CT,OpMode)
 			case Type of
 				neural ->
 					[sense(ExoSelf,CT) || _<- lists:seq(1,Smoothness)],
@@ -101,9 +101,9 @@ cortex(ExoSelf,Id,State,CT,[{Actuator,[CF_PId|N_Ids]}|CF],CFAcc,OAcc,OpMode)->
 	end;
 cortex(ExoSelf,Id,State,CT,[{Actuator,[]}|CF],CFAcc,OAcc,OpMode)->
 	Output = case Actuator#actuator.tot_vl - length(CFAcc) of
-		0 ->%io:format("here~n"),
+		0 ->
 			lists:reverse(lists:flatten(CFAcc));
-		Val ->%io:format("here1~n"),
+		Val ->
 			lists:append(lists:duplicate(Val,0),lists:reverse(lists:flatten(CFAcc)))
 	end,
 	cortex(ExoSelf,Id,State,CT,CF,[],[{Actuator,Output}|OAcc],OpMode);
@@ -491,7 +491,6 @@ attach([],_E1,_E2,Acc)->
 	lists:reverse(Acc).
 	
 extrude(NewDimension_Coord,Substrate)->
-%	io:format("here:~p~n",[Substrate]),
 	extrude(NewDimension_Coord,Substrate,[]).
 extrude(NewDimension_Coord,[{Coord,O,W}|Substrate],Acc)->
 	%io:format("NewDimension_Coord:~p~n",[NewDimension_Coord]),
@@ -499,14 +498,6 @@ extrude(NewDimension_Coord,[{Coord,O,W}|Substrate],Acc)->
 extrude(_Coord,[],Acc)->
 	lists:reverse(Acc).
 	
-%{VL,{actuator,Actuator,Id,Parameters}}
-%{VL,{sensor,System,Id,Parameters}}
-%CF:
-%	neural:		[{Actuator1,[N_Id1...N_Idn]},{Actuator2,[N_Id1...N_Idn]}...]
-%	hypercube:	[{CFTag1,[N_Id1...N_Idn]},{CFTag2,[N_Id2...N_Idn]}...] CFTag:[{weight,1}...]
-%CT:
-%	neural:		[{Sensor1,[{N_Id1,FilterTag1},{N_Id2,FilterTag2}...]}...] FilterTag:{single,Index} | {block,VL}
-%	hypercube:	[{CTTag1,[{N_Id1,FilterTag1},{N_Id2,FilterTag2}...]}...] CTTag:[{cartesian,VL}...], FilterTag:{single,Index} | {block,VL}	
 calculate_IterativeOutput(Densities,Substrate,Input,CT,CF)->
 %	Input = [I|| {I_PId,I} <- InputP],
 	[SHead|STail] = Substrate,
@@ -854,7 +845,6 @@ reenter_scape()->
 	end.
 
 sense(ExoSelf,[{S,N_PIdPs}|CT])->
-	%{sensor,Name,SensorId,Format,VL,Parameters} = Sensor,
 	Name = S#sensor.name,
 	VL = S#sensor.tot_vl,
 	SensorId = S#sensor.id,
@@ -869,7 +859,6 @@ sense(_ExoSelf,[])->
 		%io:format("N_PId Tag:~p~n",[{N_PId,Tag}]),
 		case Tag of
 			{single,Index}->
-				%{value,{PId,Input}} = lists:keysearch(PId,1,IAcc),
 				%io:format("Input:~p~n",[Input]),
 				Val = lists:nth(Index,Input),
 				%io:format("Val:~p Input:~p~n",[Val,Input]),
@@ -928,7 +917,6 @@ gt(ExoSelf,Specie_Id,[],AffectFitness,AffectProgress)->
 						true ->
 							done = gen_server:call(ExoSelf,{weight_save}),
 							done = gen_server:call(ExoSelf,{backup_request}),
-							%gen_server:cast(monitor,{self(),evaluations,Specie_Id,AttemptIndex}),
 							case Goal of
 								undefined ->
 									done;
@@ -945,7 +933,6 @@ gt(ExoSelf,Specie_Id,[],AffectFitness,AffectProgress)->
 							%io:format("Pid:~p HighestFitness:~p Fitness:~p~n",[self(),HighestFitness,U_FitnessAcc]),
 							case AttemptIndex >= MaxMissedAttempts of
 								true ->
-									%gen_server:cast(monitor,{self(),evaluations,Specie_Id,AttemptIndex}),
 									gen_server:cast(ExoSelf,{self(),fitness,{FitnessType,HighestFitness,Goal}}),
 									io:format("Pid:~p HighestFitness:~p AttemptIndex:~p~n",[self(),HighestFitness,AttemptIndex]),
 									case Goal of
@@ -968,7 +955,7 @@ gt(ExoSelf,Specie_Id,[],AffectFitness,AffectProgress)->
 %					io:format("Instance:~p Cortex:~p~n",[Instance,self()]),
 					put(fitness_list,U_FitnessList),
 					put(instance,Instance+1),
-					put(fitness,{HighestFitness,AttemptIndex+1}), %TODO We need to reset the memory, because he jsut lets it back in, hence the diff 
+					put(fitness,{HighestFitness,AttemptIndex+1}), %TODO We need to reset the memory, because it just lets it back in, hence the diff 
 					reset_Memory,
 					reenter_scape(),
 					reset_IProfile				%We saw last time, where one of the values is different (the first?)

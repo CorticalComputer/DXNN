@@ -28,10 +28,6 @@
 sync()->
 	make:all([load]).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%-record(polis,{id,scape_ids=[],population_ids=[],specie_ids=[],dx_ids=[],parameters=[]}).
-%-record(scape,{id,sector_ids=[],type}).
-%-record(sector,{id,scape_id,type,avatars=[],food=[],walls=[],laws=[],anomolies=[],artifacts=[],objects=[],elements=[],atoms=[]}).
-%-record(avatar,{id,morphology,type,team,energy,sound,gestalt,age=0,kills=0,loc,direction,r,objects,state,stats,actuators,sensors}).
 %%==================================================================== API
 %%--------------------------------------------------------------------
 %% Function: start_link() -> {ok,Pid} | ignore | {error,Error}

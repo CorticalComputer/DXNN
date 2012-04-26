@@ -1,9 +1,11 @@
-%% This source code and work is provided and developed by DXNN Research Group WWW.DXNNResearch.COM
-%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% This source code and work is provided and developed by Gene I. Sher & DXNN Research Group WWW.DXNNResearch.COM
+%
 %Copyright (C) 2009 by Gene Sher, DXNN Research Group, CorticalComputer@gmail.com
 %All rights reserved.
 %
 %This code is licensed under the version 3 of the GNU General Public License. Please see the LICENSE file that accompanies this project for the terms of use.
+%%%%%%%%%%%%%%%%%%%% Deus Ex Neural Network :: DXNN %%%%%%%%%%%%%%%%%%%%
 
 
 -module(actuators).
@@ -175,4 +177,33 @@ fx_Trade(ExoSelf,Output,ActuatorId,Parameters)->
 		{From,Result}->
 %			io:format("Result:~p~n",[Result]),
 			Result
+	end.
+	
+abc_pred(ExoSelf,[Output],ActuatorId,Parameters)->
+	[TableName,StartIndex,EndIndex,StartBenchIndex,EndBenchIndex] = Parameters,
+	case get(abc_pred) of
+		undefined ->
+			exit("ERROR in actuators:abc_pred/4, key not present~n");
+		Index ->
+			Classification = ets:lookup_element(TableName,Index,3),
+			%io:format("Classificatoin:~p~n",[Classification]),
+			Progress = case get(opmode) of
+				gt ->
+					case Index == EndIndex of
+						true -> erase(abc_pred),1;
+						false -> put(abc_pred,Index+1),0
+					end;
+				benchmark ->
+					case Index == EndBenchIndex of
+						true -> erase(abc_pred),1;
+						false -> put(abc_pred,Index+1),0
+					end
+			end,
+			%io:format("Progress~p~n",[Progress]),
+			case Classification == functions:bin(Output) of
+				true ->
+					{Progress,1};
+				false ->
+					{Progress,0}
+			end
 	end.

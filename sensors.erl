@@ -1032,3 +1032,70 @@ fx_Internals(CTVL,_SensorId,Parameters)->
 		{PId,Result}->
 			Result
 	end.
+	
+abc_pred(CTVL,_SensorId,Parameters)->
+	[TableName,StartIndex,EndIndex,StartBenchIndex,EndBenchIndex] = Parameters,
+	Out=case get(abc_pred) of
+		undefined ->
+			%Result = ets:file2tab(TableName),
+			%io:format("Result:~p~n",[Result]),
+			%{ok,TableName} = Result,
+			case get(opmode) of
+				gt ->%io:format("gt~n"),
+					put(abc_pred,StartIndex),
+					Sequence = ets:lookup_element(TableName,StartIndex,2),
+					%io:format("Sequence:~p~n",[Sequence]),
+					[translate_seq(Char) || Char <- Sequence];
+				benchmark ->%io:format("benchmark~n"),
+					put(abc_pred,StartBenchIndex),
+					Sequence = ets:lookup_element(TableName,StartBenchIndex,2),
+					[translate_seq(Char) || Char <- Sequence]
+			end;
+		Index ->%io:format("Index:~p~n",[Index]),
+			Sequence = ets:lookup_element(TableName,Index,2),
+			[translate_seq(Char) || Char <- Sequence]
+	end,
+	%io:format("Out:~p~n",[Out]),
+	Out.
+	
+	translate_seq(Char)->
+		case Char of
+			65 -> -1;
+			82 -> -0.9;
+			78 -> -0.8;
+			68 -> -0.7;
+			67 -> -0.6;
+			69 -> -0.5;
+			81 -> -0.4;
+			71 -> -0.3;
+			72 -> -0.2;
+			73 -> -0.1;
+			76 -> 0;
+			75 -> 0.1;
+			77 -> 0.2;
+			70 -> 0.3;
+			80 -> 0.4;
+			83 -> 0.5;
+			84 -> 0.6;
+			87 -> 0.7;
+			89 -> 0.8;
+			86 -> 0.9;
+			88 -> 1
+		end.
+		
+%A 	Adenine
+%C 	Cytosine
+%G 	Guanine
+%T (or U) 	Thymine (or Uracil)
+%R 	A or G [puRine]
+%Y 	C or T (U) [pYrimidine]
+%S 	G or C
+%W 	A or T (U)
+%K 	G or T (U)
+%M 	A or C
+%B 	C or G or T (U)
+%D 	A or G or T (U)
+%H 	A or C or T (U)
+%V 	A or C or G
+%N 	any base
+%. or - 	gap

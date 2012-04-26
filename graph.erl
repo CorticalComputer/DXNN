@@ -49,11 +49,6 @@ graph()->
 	ITE = ets:new(ite,[set,private]),
 	graph(Window,Canvas,Width,Height,ITE).
 
-%{ObjName,undefined,Color,Pivot,Coords,Parameter} = Object,		
-%ND = {circle,Id,Color,Pivot,Coords,Radius}.
-%-record(circle,{id,color,loc,pivot,r}).
-%-record(line,{id,color,loc,pivot,coords}).
-%draw_objects(Canvas,[Object|Objects],Acc)
 		graph(Window,Canvas,Width,Height,ITE)->
 			receive
 				{new,PatternP}->

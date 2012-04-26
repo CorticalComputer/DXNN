@@ -52,8 +52,6 @@ test({Population_Id,Specie_Id,DX_Id,OpMode,SpecCon})->
 			io:format("********ERROR:technome_constructor:text() ~p~n",[ERROR])
 	end.
 
-%-record(population,{id,type,trace=#trace{},specie_ids=[],topspecie_ids,polis_id}).
-%-record(specie,{id,morphology,constraint,fingerprint,trace=#trace{},cur_stat,avg_fitness,stagnation_factor,dx_ids=[],dead_pool=[],topdx_ids=[],championdx_ids=[],population_id}).
 print_PopulationAgents(Population_Id)->
 	[P] = mnesia:dirty_read({population,Population_Id}),
 	[print_SpecieAgents(Specie_Id)|| Specie_Id<-P#population.specie_ids].

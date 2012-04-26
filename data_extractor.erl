@@ -1,10 +1,11 @@
-%% This source code and work is provided and developed by DXNN Research Group WWW.DXNNResearch.COM
-%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% This source code and work is provided and developed by Gene I. Sher & DXNN Research Group WWW.DXNNResearch.COM
+%
 %Copyright (C) 2009 by Gene Sher, DXNN Research Group, CorticalComputer@gmail.com
 %All rights reserved.
 %
 %This code is licensed under the version 3 of the GNU General Public License. Please see the LICENSE file that accompanies this project for the terms of use.
-
+%%%%%%%%%%%%%%%%%%%% Deus Ex Neural Network :: DXNN %%%%%%%%%%%%%%%%%%%%
 
 -module(data_extractor).
 -compile(export_all).
@@ -12,13 +13,27 @@
 
 -define(PACKAGER,vowel_recognition).
 
+check_table(TableName)->
+	{ok,TN} = ets:file2tab(TableName),
+	io:format("TN:~p~n",[TN]),
+	table_dump(TN,ets:first(TN)),
+	ets:delete(TN).
+	
+	table_dump(TN,'$end_of_table')->
+		ok;
+	table_dump(TN,Key)->
+		io:format("~p~n",[ets:lookup(TN,Key)]),
+		table_dump(TN,ets:next(TN,Key)).
+
 start(URL,SplitVals,FileName)->
+	start(URL,SplitVals,FileName,?PACKAGER).
+start(URL,SplitVals,FileName,Packager)->
 	case file:read_file(URL) of
 		{ok,Data} ->
 			file:close(URL),
 			List = binary_to_list(Data),
 			Extracted_Values = list_to_dvals(SplitVals,List,[]),
-			store(Extracted_Values,FileName);
+			store(Extracted_Values,FileName,Packager);
 		{error,Error} ->
 			io:format("Error:~p~n",[Error])
 	end.
@@ -69,17 +84,17 @@ list_to_number(List)->
 	end.
 	
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Packagers %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-store(Extracted_Values,Name)->
+store(Extracted_Values,Name,Packager)->
 	TableName = ets:new(Name,[set,public,named_table]),
-	data_extractor:?PACKAGER(TableName,Extracted_Values,1),
+	data_extractor:Packager(TableName,Extracted_Values,1),
 	ets:tab2file(TableName,Name),
 	ets:delete(TableName).
 	
-	store(TableName,[Line|Lines],Index)->
-		ets:insert(TableName,{Index,Line}),
-		store(TableName,Lines,Index+1);
-	store(TableName,[],Index)->
-		io:format("Stored to ETS table:~p Index reached:~p~n",[TableName,Index-1]).
+simple_store(TableName,[Line|Lines],Index)->
+	ets:insert(TableName,{Index,Line}),
+	simple_store(TableName,Lines,Index+1);
+simple_store(TableName,[],Index)->
+	io:format("Stored to ETS table:~p Index reached:~p~n",[TableName,Index-1]).
 
 %0 0 0 -3.639 0.418 -0.670 1.779 -0.168 1.627 -0.388 0.529 -0.874 -0.814  0
 %data_extractor:start("Vowel_Recognition",[32,32,32,32,32,32,32,32,32,32,32,32,32,skip,10],vowel_recognition).  	
@@ -126,3 +141,10 @@ mines_vs_rocks(TableName,[{_,Line}|Lines],Index,TestFlag)->
 	mines_vs_rocks(TableName,Lines,U_Index,TestFlag);
 mines_vs_rocks(_TableName,[],Index,_TestFlag)->
 	Index.
+	
+abc_pred(TableName,[Line|Lines],Index)->
+	[Sequence,Classification] = Line,
+	ets:insert(TableName,{Index,Sequence,Classification}),
+	abc_pred(TableName,Lines,Index+1);
+abc_pred(TableName,[],Index)->
+	io:format("Stored to ETS table:~p Index reached:~p~n",[TableName,Index-1]).

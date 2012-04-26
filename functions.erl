@@ -214,3 +214,11 @@ std(List)->
 	std([],_Avg,Acc)->
 		Variance = lists:sum(Acc)/length(Acc),
 		math:sqrt(Variance).
+		
+o()->
+	spawn(functions,o,[abc_pred10]).
+	
+o(TableName)->
+	Result = ets:file2tab(TableName),
+	io:format("Result~p~n",[Result]),
+	timer:sleep(100000).

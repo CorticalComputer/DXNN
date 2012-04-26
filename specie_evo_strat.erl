@@ -9,15 +9,6 @@
 -compile(export_all).
 -include("records.hrl").
 
-%-record(specie_evo_strat,{
-%	strategies_mutation_prob = 0,%Probability of mutating an evolutionary strategies parameter: 0-100%
-%	evolution_type = memetic,%memetic|genetic
-%	selection_type = competition,%competition|top3
-%	selection_threshold = 0.5,%Top 10% - 90% survival.
-%	diversity_factor = 0,%Weight of the fingerprint difference, importance for genetic diversity to be part of the fitness function.
-%	revenent_prob = 0.1 %probability that a deadpool NN will reavaluate, 10% - 90%
-%}).
-
 init()->
 	#specie_evo_strat{
 		strategies_mutation_prob = random:uniform(),

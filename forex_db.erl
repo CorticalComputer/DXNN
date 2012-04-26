@@ -34,7 +34,6 @@ max(FXTable,Feature,StartKey,EndKey)->
 			Acc;
 		bp(FXTable,Feature,Key,EndKey,Acc)->
 			Val = lookup_element(FXTable,Key,Feature),
-			%NextVal = lookup_element(FXTable,next(FXTable,Key),Feature),
 			Action = 1,
 			Profit = trader(Val,Action),
 			bp(FXTable,Feature,next(FXTable,Key),EndKey,Profit+Acc).
@@ -48,7 +47,6 @@ max(FXTable,Feature,StartKey,EndKey)->
 			Acc;
 		rp(FXTable,Feature,Key,EndKey,Acc)->
 			Val = lookup_element(FXTable,Key,Feature),
-			%NextVal = lookup_element(FXTable,next(FXTable,Key),Feature),
 			Action = case (random:uniform() - 0.5) > 0 of
 				true -> 1;
 				false -> -1
@@ -65,7 +63,6 @@ max(FXTable,Feature,StartKey,EndKey)->
 			Acc;
 		mp(FXTable,Feature,Key,EndKey,Acc)->
 			Val = lookup_element(FXTable,Key,Feature),
-			%NextVal = lookup_element(FXTable,next(FXTable,Key),Feature),
 			Action = max,
 			Profit = trader(Val,Action),
 			mp(FXTable,Feature,next(FXTable,Key),EndKey,Profit+Acc).
