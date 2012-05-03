@@ -1,209 +1,201 @@
-%% This source code and work is provided and developed by DXNN Research Group WWW.DXNNResearch.COM
-%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% This source code and work is provided and developed by Gene I. Sher & DXNN Research Group WWW.DXNNResearch.COM
+%
 %Copyright (C) 2009 by Gene Sher, DXNN Research Group, CorticalComputer@gmail.com
 %All rights reserved.
 %
 %This code is licensed under the version 3 of the GNU General Public License. Please see the LICENSE file that accompanies this project for the terms of use.
-
+%
+%The original release of this source code and the DXNN MK2 system was introduced and explained (architecture and the logic behind it) in my book: Handbook of Neuroevolution Through Erlang. Springer 2012, print ISBN: 978-1-4614-4462-6 ebook ISBN: 978-1-4614-4463-6. 
+%%%%%%%%%%%%%%%%%%%% Deus Ex Neural Network :: DXNN %%%%%%%%%%%%%%%%%%%%
 -module(neuron).
 -compile(export_all).
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Neuron Parameters %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%-define(DELTA_MULTIPLIER,math:pi()).
--define(SAT_LIMIT,math:pi()).
--define(RO_SIGNAL,0).%(random:uniform()-0.5)*2).
-%-record(state, {exoself,id,su_id,i,im,i_acc,o,om,lt,dwp,dwpm,ro}).
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-gen(ExoSelf,Node) ->
-	PId = spawn(Node,neuron,prep,[ExoSelf]),
-	{ok,PId}.
-		
-prep(ExoSelf)->
-	{A,B,C} = now(),
-	random:seed(A,B,C),
-	put(sa,0),%TODO:Lets see if this works.
-	receive
-		{ExoSelf,init,InitState}->
-			%State = {self(),N_Id,SU_Id,TotIVL,I_PIds,TotOVL,O_PIds,LearningType,RO_PIds,NDWP}
-			%io:format("Neuron:Prep:: InitState:~p~n",[InitState]),
-			{ExoSelf,Neuron_Id,SU_Id,_TotIVL,I,_TotOVL,O,LT,RO,DWP} = InitState,
-			fanout(RO,{self(),forward,[?RO_SIGNAL]}),%lists:duplicate(TotOVL,0)}),
-			neuron:neuron(ExoSelf,Neuron_Id,SU_Id,{I,I},[],{O,O},LT,{DWP,DWP},RO)
-	end.
+-include("records.hrl").
+-define(DELTA_MULTIPLIER,math:pi()*2).
+-define(SAT_LIMIT,math:pi()*2).
+-define(RO_SIGNAL,0).
+-record(state,{
+	id,
+	cx_pid,
+	af,
+	pf,
+	aggrf,
+	heredity_type,
+	si_pids=[],
+	si_pidps_bl = [],
+	si_pidps_current=[],
+	si_pidps_backup=[],
+	mi_pids=[],
+	mi_pidps_current=[],
+	mi_pidps_backup=[],
+	output_pids=[],
+	ro_pids=[]
+}).
+gen(ExoSelf_PId,Node)->
+	spawn(Node,?MODULE,prep,[ExoSelf_PId]).
 
-neuron(ExoSelf,Neuron_Id,SU_Id,{[{IPid,_IVL}|I],IM},IAcc,{[OPid|O],OM},LT,{DWP,DWPM},RO)->
-	receive
-		{IPid,forward,Input}->
-			%io:format("IPid:~p Input:~p~n",[IPid,Input]),
-			neuron:neuron(ExoSelf,Neuron_Id,SU_Id,{I,IM},[{IPid,Input}|IAcc],{[OPid|O],OM},LT,{DWP,DWPM},RO);
-		{_From,gt,weight_mutate,DMultiplier}->
-			{Adapter,_AF} = LT,
-			Updated_DWP = case is_list(DWP) of %use type for this, standard vs bst
-				true ->
-					MutationP = 1/math:sqrt(length(DWP)),%TODO: Find a better way to find the length of DWP, perhaps calculate it once and store.
-					mutate_DWP(DWP,MutationP,DMultiplier,Adapter,[]);
-				false ->
-					{Weight,Bias} = DWP,
-					WLimit = ?SAT_LIMIT,
-					case random:uniform(2) of
-						1 ->
-							Mutated_Weight = functions:sat(Weight + (random:uniform()-0.5)*DMultiplier,WLimit,-WLimit),
-							{Mutated_Weight,Bias};
-						2 ->
-							Mutated_Weight = functions:sat(Weight + (random:uniform()-0.5)*DMultiplier,WLimit,-WLimit),
-							Mutated_Bias = functions:sat(Bias + (random:uniform()-0.5)*DMultiplier,WLimit,-WLimit),
-							{Mutated_Weight,Mutated_Bias}
-					end
-			end,
-%			io:format("Mutating DWP:~p to Updated_DW:~p~n",[DWP,Updated_DWP]),
-			neuron:neuron(ExoSelf,Neuron_Id,SU_Id,{[{IPid,_IVL}|I],IM},IAcc,{[OPid|O],OM},LT,{Updated_DWP,DWPM},RO);
-		{_From,gt,weight_save}->
-			WS_DWP = case LT of
-				{modulated,_} ->%TODO, what's the point of keeping old W and changing W2 and W3? Might as well have full lamarkian.
-					reload_DWP(DWP,DWPM,[]);
-				_ ->
-					DWP
-			end,
-			neuron:neuron(ExoSelf,Neuron_Id,SU_Id,{[{IPid,_IVL}|I],IM},IAcc,{[OPid|O],OM},LT,{WS_DWP,WS_DWP},RO);
-		{_From,gt,weight_revert}->
-			%io:format("Curr_State:~p, Prev_State:~p~n",[LT,Reverted_LT]),
-			%io:format("Reverting to DWPM:~p~n",[DWPM]),
-			neuron:neuron(ExoSelf,Neuron_Id,SU_Id,{[{IPid,_IVL}|I],IM},IAcc,{[OPid|O],OM},LT,{DWPM,DWPM},RO);
-		{ExoSelf,memory_reset}->
-			neuron:flush_buffer(Neuron_Id),
-			ExoSelf ! {self(),ready},
-			receive 
-				{ExoSelf, reset}->
-					fanout(RO,{self(),forward,[?RO_SIGNAL]})
-			end,
-%			io:format("N_Id:~p reseting~n",[Neuron_Id]),
-			neuron:neuron(ExoSelf,Neuron_Id,SU_Id,{IM,IM},[],{OM,OM},LT,{DWP,DWPM},RO);
-		{ExoSelf,get_backup}->
-			ExoSelf ! {self(),backup,{IM,OM,RO,LT,DWPM}},
-			neuron:neuron(ExoSelf,Neuron_Id,SU_Id,{[{IPid,_IVL}|I],IM},IAcc,{[OPid|O],OM},LT,{DWP,DWPM},RO);
-		{ExoSelf,terminate}->
-%			io:format("terminate:~p DWP:~p~n",[Neuron_Id,DWP]),
-			done
-		%after 10000 ->
-			%io:format("NeuronStuck:~p~n",[{ExoSelf,Neuron_Id,{[{IPid,_IVL}|I],IM},IAcc,{[OPid|O],OM},LT,EF,DWP,RO}])
-	end;
-neuron(ExoSelf,Neuron_Id,SU_Id,{[],IM},IAcc,{O,OM},LT,{DWP,DWPM},RO)->
-	DIV = lists:reverse(IAcc),	
-	Updated_DWP = feedforward(LT,DIV,DWP,O),
-	neuron:neuron(ExoSelf,Neuron_Id,SU_Id,{IM,IM},[],{O,OM},LT,{Updated_DWP,DWPM},RO).
-
-%%==================================================================== Internal Functions
-fanout([Pid|Pids],Msg)->
-	Pid ! Msg,
-	fanout(Pids,Msg);
-fanout([],_Msg)->
-	true.
-
-flush_buffer(Neuron_Id)->
+prep(ExoSelf_PId) ->
+	random:seed(now()),
 	receive 
-		ANY -> %io:format("ANY:~p~n",[{ANY,self(),Neuron_Id}]),
-		flush_buffer(Neuron_Id)
-	after 0 ->
-		done
-end.
+		{ExoSelf_PId,{Id,Cx_PId,AF,PF,AggrF,HeredityType,SI_PIdPs,MI_PIdPs,Output_PIds,RO_PIds}} ->
+			fanout(RO_PIds,{self(),forward,[?RO_SIGNAL]}),
+			SI_PIds = lists:append([IPId || {IPId,_W} <- SI_PIdPs, IPId =/= bias],[ok]),
+			MI_PIds = lists:append([IPId || {IPId,_W} <- MI_PIdPs, IPId =/= bias],[ok]),
+			%io:format("SI_PIdPs:~p ~nMI_PIdPs:~p~n",[SI_PIdPs,MI_PIdPs]),
+			S=#state{
+				id=Id,
+				cx_pid=Cx_PId,
+				af=AF,
+				pf=PF,
+				aggrf=AggrF,
+				heredity_type = HeredityType,
+				si_pids=SI_PIds,
+				si_pidps_bl = SI_PIdPs,
+				si_pidps_current=SI_PIdPs,
+				si_pidps_backup=SI_PIdPs,
+				mi_pids=MI_PIds,
+				mi_pidps_current=MI_PIdPs,
+				mi_pidps_backup=MI_PIdPs,
+				output_pids=Output_PIds,
+				ro_pids=RO_PIds
+			},
+			loop(S,ExoSelf_PId,SI_PIds,MI_PIds,[],[])
+	end.
+%When gen/2 is executed, it spawns the neuron element and immediately begins to wait for its initial state message from the exoself. Once the state message arrives, the neuron sends out the default forward signals to any elements in its ro_ids list, if any. Afterwards, prep drops into the neuron's main loop.
 
-mutate_DWP([{Key,WPC}|DWP],MutationP,DMultiplier,Adapter,Acc)->
-	U_WPC = case random:uniform() < MutationP of
-		true ->
-			MP = 1/math:sqrt(length(WPC)),
-			mutate_WPC(WPC,MP,DMultiplier,Adapter,[]);
-		false ->
-			WPC
+loop(S,ExoSelf_PId,[ok],[ok],SIAcc,MIAcc)->
+	PF = S#state.pf,
+	AF = S#state.af,
+	AggrF = S#state.aggrf,
+	{PFName,PFParameters} = PF,
+	%io:format("self:~p~n SIAcc:~p~n MIAcc:~p~n",[self(), SIAcc,MIAcc]),
+	Ordered_SIAcc = lists:reverse(SIAcc),
+	SI_PIdPs = S#state.si_pidps_current,
+	SAggregation_Product = sat(signal_aggregator:AggrF(Ordered_SIAcc,SI_PIdPs),?SAT_LIMIT),
+	SOutput = functions:AF(SAggregation_Product),
+	
+	Output_PIds = S#state.output_pids,
+	[Output_PId ! {self(),forward,[SOutput]} || Output_PId <- Output_PIds],
+	
+	case PFName of
+		none ->
+			U_S=S;
+		_ ->%io:format("MIAcc:~p, S:~p~n",[MIAcc,S]),
+			Ordered_MIAcc = lists:reverse(MIAcc),
+			MI_PIdPs = S#state.mi_pidps_current,
+			MAggregation_Product = sat(signal_aggregator:dot_product(Ordered_MIAcc,MI_PIdPs),?SAT_LIMIT),
+			MOutput = functions:tanh(MAggregation_Product),
+			U_SI_PIdPs = plasticity:PFName([MOutput|PFParameters],Ordered_SIAcc,SI_PIdPs,SOutput),
+			%io:format("U_SI_PIdPs:~p~n",[U_SI_PIdPs]),
+			U_S=S#state{
+				si_pidps_current = U_SI_PIdPs
+			}
 	end,
-	mutate_DWP(DWP,MutationP,DMultiplier,Adapter,[{Key,U_WPC}|Acc]);
-mutate_DWP([],_MutationP,_DMultiplier,_Adapter,Acc)->
-	lists:reverse(Acc).
+	SI_PIds = S#state.si_pids,
+	MI_PIds = S#state.mi_pids,
+	neuron:loop(U_S,ExoSelf_PId,SI_PIds,MI_PIds,[],[]);
+loop(S,ExoSelf_PId,[SI_PId|SI_PIds],[MI_PId|MI_PIds],SIAcc,MIAcc)->
+	receive
+		{SI_PId,forward,Input}->
+			loop(S,ExoSelf_PId,SI_PIds,[MI_PId|MI_PIds],[{SI_PId,Input}|SIAcc],MIAcc);
+		{MI_PId,forward,Input}->
+			loop(S,ExoSelf_PId,[SI_PId|SI_PIds],MI_PIds,SIAcc,[{MI_PId,Input}|MIAcc]);
+		{ExoSelf_PId,weight_backup}->
+			U_S=case S#state.heredity_type of
+				darwinian ->
+					S#state{
+						si_pidps_backup=S#state.si_pidps_bl,
+						mi_pidps_backup=S#state.mi_pidps_current
+					};
+				lamarckian ->
+					S#state{
+						si_pidps_backup=S#state.si_pidps_current,
+						mi_pidps_backup=S#state.mi_pidps_current
+					}
+			end,
+			loop(U_S,ExoSelf_PId,[SI_PId|SI_PIds],[MI_PId|MI_PIds],SIAcc,MIAcc);
+		{ExoSelf_PId,weight_restore}->
+			U_S = S#state{
+				si_pidps_bl=S#state.si_pidps_backup,
+				si_pidps_current=S#state.si_pidps_backup,
+				mi_pidps_current=S#state.mi_pidps_backup
+			},
+			loop(U_S,ExoSelf_PId,[SI_PId|SI_PIds],[MI_PId|MI_PIds],SIAcc,MIAcc);
+		{ExoSelf_PId,weight_perturb,Spread}->
+			Perturbed_SIPIdPs=perturb_IPIdPs(Spread,S#state.si_pidps_backup),
+			Perturbed_MIPIdPs=perturb_IPIdPs(Spread,S#state.mi_pidps_backup),
+			U_S=S#state{
+				si_pidps_bl=Perturbed_SIPIdPs,
+				si_pidps_current=Perturbed_SIPIdPs,
+				mi_pidps_current=Perturbed_MIPIdPs
+			},
+			loop(U_S,ExoSelf_PId,[SI_PId|SI_PIds],[MI_PId|MI_PIds],SIAcc,MIAcc);
+		{ExoSelf_PId,reset_prep}->
+			neuron:flush_buffer(),
+			ExoSelf_PId ! {self(),ready},
+			RO_PIds = S#state.ro_pids,
+			receive 
+				{ExoSelf_PId, reset}->
+					fanout(RO_PIds,{self(),forward,[?RO_SIGNAL]})
+			end,
+			loop(S,ExoSelf_PId,S#state.si_pids,S#state.mi_pids,[],[]);
+		{ExoSelf_PId,get_backup}->
+			NId = S#state.id,
+			ExoSelf_PId ! {self(),NId,S#state.si_pidps_backup,S#state.mi_pidps_backup},
+			loop(S,ExoSelf_PId,[SI_PId|SI_PIds],[MI_PId|MI_PIds],SIAcc,MIAcc);
+		{ExoSelf_PId,terminate}->
+			%io:format("Neuron:~p is terminating.~n",[self()])
+			ok
+		%after 10000 ->
+			%io:format("neuron:~p stuck.~n",[S#state.id])
+	end.
+%The neuron process waits for vector signals from all the processes that it's connected from, taking the dot product of the input and weight vectors, and then adding it to the accumulator. Once all the signals from Input_PIds are received, the accumulator contains the dot product to which the neuron then adds the bias and executes the activation function. After fanning out the output signal, the neuron again returns to waiting for incoming signals. When the neuron receives the {ExoSelf_PId,get_backup} message, it forwards to the exoself its full MInput_PIdPs list, and its Id. The MInput_PIdPs contains the modified, tuned and most effective version of the input_idps. The neuron process is also accepts weight_backup signal, when receiving it the neuron saves to process dictionary the current MInput_PIdPs. When the neuron receives the weight_restore signal, it reads back from the process dictionary the stored Input_PIdPs, and switches over to using it as its active Input_PIdPs list. When the neuron receives the weight_perturb signal from the exoself, it perturbs the weights by executing the perturb_Lipids/1 function, which returns the updated list. Finally, the neuron can also accept a reset_prep signal, which makes the neuron flush its buffer in the off chance that it has a recursively sent signal in its inbox. After flushing its buffer, the neuron waits for the exoself to send it the reset signal, at which point the neuron, now fully refreshed after the flush_buffer/0, outputs a default forward signal to its recursively connected elements, if any, and then drops back into the main loop.
 
-	mutate_WPC([{W,W1,W2}|WPC],MutationP,DMultiplier,Adapter,Acc)->
-		{M_W,M_W1,M_W2} = case Adapter of
-			modulated ->
-				case random:uniform() < 0.5 of
-					true ->
-						{W,mutate_W(W1,MutationP,DMultiplier),W2};
-					false ->
-						{W,W1,mutate_W(W2,MutationP,DMultiplier)}
-				end;
+	fanout([Pid|Pids],Msg)->
+		Pid ! Msg,
+		fanout(Pids,Msg);
+	fanout([],_Msg)->
+		true.
+%The fanout/2 function fans out th Msg to all the PIds in its list.
+
+	flush_buffer()->
+		receive 
 			_ ->
-				{mutate_W(W,MutationP,DMultiplier),W1,W2}
-		end,
-		mutate_WPC(WPC,MutationP,DMultiplier,Adapter,[{M_W,M_W1,M_W2}|Acc]);
-	mutate_WPC([],_MutationP,_DMultiplier,_Adapter,Acc)->
-		lists:reverse(Acc).
-		
-		mutate_W(W,MutationP,DMultiplier)->
-			%DMultiplier = ?DELTA_MULTIPLIER,
-			WLimit = ?SAT_LIMIT,
-			case random:uniform() < MutationP of
-				true ->
-					functions:sat(W + (random:uniform()-0.5)*DMultiplier,WLimit,-WLimit);
-				false ->
-					W
-			end.
-		
-feedforward(LT,DIV,DWP,O)->
-	%Normalizer = calculate_standardizer(DIV,0),
-	%Input_Normalizer = calculate_normalizer(DIV,0),
-	%Normalized_DIV = normalize_DIV(Input_Normalizer,DIV,[]),
-	%{Adapter,ActivationFunction} = LT,
-	{Adapter,AF} = LT,
-	Output = learning_types:calculate_Output(DWP,DIV,AF),
-	fanout(O,{self(),forward,[Output]}),
-	Updated_DWP = learning_types:learn(Adapter,DWP,DIV,Output),
-	Updated_DWP.
-	
-	normalize_DIV(Normalizer,[{Pid,Input}|DIV],NDIVAcc)->
-		normalize_DIV(Normalizer,DIV,[{Pid,[I/Normalizer||I<-Input]}|NDIVAcc]);
-	normalize_DIV(_,[],NDIVAcc)->
-		lists:reverse(NDIVAcc).
-	
-	
-	calculate_standardizer([{_,InputCluster}|DIV],StandardizerAcc)->
-		IC_Standardizer = calculate_ICS(InputCluster,0),
-		calculate_standardizer(DIV,IC_Standardizer+StandardizerAcc); %%%Needs to use absolute val.
-	calculate_standardizer([],StandardizerAcc)->
-		case StandardizerAcc of
-			0.0 -> 
-				1;
-			0 ->
-				1;
-			_ -> 
-				StandardizerAcc
-		end.
-		
-		calculate_ICS([Val|InputCluster],ICSAcc)->
-			calculate_ICS(InputCluster,abs(Val)+ICSAcc);
-		calculate_ICS([],ICSAcc)->
-			ICSAcc.
-		
-	calculate_normalizer([{_,InputCluster}|DIV],NormalizerAcc)->
-		IC_Normalizer = calculate_ICN(InputCluster,0),
-		calculate_normalizer(DIV,IC_Normalizer+NormalizerAcc);
-	calculate_normalizer([],NormalizerAcc)->
-		case math:sqrt(NormalizerAcc) of
-			0.0 -> 
-				1;
-			Normalizer -> 
-				Normalizer		
-					
-		end.
-		
-		calculate_ICN([Val|InputCluster],ICNAcc)->
-			%io:format("ICN:~p~n",[{Val,InputCluster,ICNAcc}]),
-			calculate_ICN(InputCluster,Val*Val+ICNAcc);
-		calculate_ICN([],ICNAcc)->
-			ICNAcc.
-			
-reload_DWP([{Id,WPC}|DWP],[{Id,WPCM}|DWPM],Acc)->
-	R_WPC = reload_WPC(WPC,WPCM,[]),
-	reload_DWP(DWP,DWPM,[{Id,R_WPC}|Acc]);
-reload_DWP([],[],Acc)->
+				flush_buffer()
+		after 0 ->
+			done
+	end.
+%The flush_buffer/0 cleans out the element's inbox.
+perturb_IPIdPs(Spread,[])->[];
+perturb_IPIdPs(Spread,Input_PIdPs)->
+	Tot_Weights=lists:sum([length(WeightsP) || {_Input_PId,WeightsP}<-Input_PIdPs]),
+	MP = 1/math:sqrt(Tot_Weights),
+	perturb_IPIdPs(Spread,MP,Input_PIdPs,[]).
+perturb_IPIdPs(Spread,MP,[{Input_PId,WeightsP}|Input_PIdPs],Acc)->
+	U_WeightsP = perturb_weightsP(Spread,MP,WeightsP,[]),
+	perturb_IPIdPs(Spread,MP,Input_PIdPs,[{Input_PId,U_WeightsP}|Acc]);
+perturb_IPIdPs(_Spread,_MP,[],Acc)->
 	lists:reverse(Acc).
-	
-	reload_WPC([{W,W1,W2}|WPC],[{W_M,W1_M,W2_M}|WPCM],Acc)->
-		reload_WPC(WPC,WPCM,[{W_M,W1,W2}|Acc]);
-	reload_WPC([],[],Acc)->
+%The perturb_IPIdPs/1 function calculates the probability with which each neuron in the Input_PIdPs is chosen to be perturbed. The probablity is based on the total number of weights in the Input_PIdPs list, with the actual mutation probablity equating to the inverse of square root of total number of weights. The perturb_IPIdPs/3 function goes through each weights block and calls the perturb_weights/3 to perturb the weights.
+
+	perturb_weightsP(Spread,MP,[{W,LPs}|Weights],Acc)->
+		U_W = case random:uniform() < MP of
+			true->
+				sat((random:uniform()-0.5)*2*Spread+W,-?SAT_LIMIT,?SAT_LIMIT);
+			false ->
+				W
+		end,
+		perturb_weightsP(Spread,MP,Weights,[{U_W,LPs}|Acc]);
+	perturb_weightsP(_Spread,_MP,[],Acc)->
 		lists:reverse(Acc).
+%The perturb_weights/3 function is the function that actually goes through each weight block, and perturbs each weight with a probablity of MP. If the weight is chosen to be perturbed, the perturbation intensity is chosen uniformly between -Spread and Spread.
+
+		sat(Val,Limit)->
+			sat(Val,-abs(Limit),abs(Limit)).
+		sat(Val,Min,Max)->
+			if
+				Val < Min -> Min;
+				Val > Max -> Max;
+				true -> Val
+			end.
+%sat/3 function simply ensures that the Val is neither less than min or greater than max.

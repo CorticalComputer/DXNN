@@ -5,7 +5,10 @@
 %All rights reserved.
 %
 %This code is licensed under the version 3 of the GNU General Public License. Please see the LICENSE file that accompanies this project for the terms of use.
+%
+%The original release of this source code and the DXNN MK2 system was introduced and explained (architecture and the logic behind it) in my book: Handbook of Neuroevolution Through Erlang. Springer 2012, print ISBN: 978-1-4614-4462-6 ebook ISBN: 978-1-4614-4463-6. 
 %%%%%%%%%%%%%%%%%%%% Deus Ex Neural Network :: DXNN %%%%%%%%%%%%%%%%%%%%
+
 
 -module(data_extractor).
 -compile(export_all).
@@ -142,9 +145,9 @@ mines_vs_rocks(TableName,[{_,Line}|Lines],Index,TestFlag)->
 mines_vs_rocks(_TableName,[],Index,_TestFlag)->
 	Index.
 	
-abc_pred(TableName,[Line|Lines],Index)->
+abc_pred1(TableName,[Line|Lines],Index)->
 	[Sequence,Classification] = Line,
 	ets:insert(TableName,{Index,Sequence,Classification}),
-	abc_pred(TableName,Lines,Index+1);
-abc_pred(TableName,[],Index)->
+	abc_pred1(TableName,Lines,Index+1);
+abc_pred1(TableName,[],Index)->
 	io:format("Stored to ETS table:~p Index reached:~p~n",[TableName,Index-1]).

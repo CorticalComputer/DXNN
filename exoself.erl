@@ -1,660 +1,422 @@
-%% This source code and work is provided and developed by DXNN Research Group WWW.DXNNResearch.COM
-%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% This source code and work is provided and developed by Gene I. Sher & DXNN Research Group WWW.DXNNResearch.COM
+%
 %Copyright (C) 2009 by Gene Sher, DXNN Research Group, CorticalComputer@gmail.com
 %All rights reserved.
 %
 %This code is licensed under the version 3 of the GNU General Public License. Please see the LICENSE file that accompanies this project for the terms of use.
+%
+%The original release of this source code and the DXNN MK2 system was introduced and explained (architecture and the logic behind it) in my book: Handbook of Neuroevolution Through Erlang. Springer 2012, print ISBN: 978-1-4614-4462-6 ebook ISBN: 978-1-4614-4463-6. 
+%%%%%%%%%%%%%%%%%%%% Deus Ex Neural Network :: DXNN %%%%%%%%%%%%%%%%%%%%
 
 -module(exoself).
+-compile(export_all).
 -include("records.hrl").
-%-compile(export_all).
-%% API
--export([test/2,start_link/0,start/0,start_link/1,start/1,init/2]).
-%% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3, g/1]).
-%% gen_server support_functions
--export([extract_CurGenNIds/4, extract_NWeightCount/2]).
--record(state, {op_mode,dx,active_nids,ids_n_pids,cx_id,start_time,generation}).
--behaviour(gen_server).
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Exoself Options %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--define(MAX_TRIALS_TYPE,individual). %[const,individual,population]
--define(ANNEALING,false).
--define(DELTA_MULTIPLIER,math:pi()).
--define(PID_SELECTION_METHOD,dynamic_random). %[dynamic|active|recent|current|all|dynamic_random|active_random|recent_random|current_random|all_random]
-%dynamic: Age = 1/random:uniform()
-%dynamic_random: Probability of choosing the neuron in the list is 1/math:sqrt(Tot_Neurons_In_The_List).
-%active: Last 3 generations.
-%active_random:
-%recent: CurGen_Neurons + math:sqrt(Tot_Neurons) of latest neurons.
-%recent_random: Probability of choosing the neuron in the list is 1/math:sqrt(Tot_Neurons_In_The_List).
-%current: CurGen_Neurons
-%current_random: Probability of choosing the neuron in the list is 1/math:sqrt(Tot_Neurons_In_The_List).
-%all: All neurons in the NN
-%all_random:
--define(EVO_STRAT,static). %static|evolving|dynamic
--define(TUNING_MUTATION_RANGE,1).
--define(ANNEALING_PARAMETER,0.5).
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+-record(state,{
+	agent_id,
+	generation,
+	pm_pid,
+	idsNpids,
+	cx_pid,
+	specie_id,
+	spids=[],
+	npids=[],
+	nids=[],
+	apids=[],
+	scape_pids=[],
+	highest_fitness=-1,
+	eval_acc=0,
+	cycle_acc=0,
+	time_acc=0,
+	max_attempts=10,
+	attempt=1,
+	tuning_duration_f,
+	tuning_selection_f,
+	annealing_parameter,
+	perturbation_range,
+	substrate_pid,
+	cpp_pids=[],
+	cep_pids=[],
+	opmode
+}).
 
-%%==================================================================== API
-%%--------------------------------------------------------------------
-%% Function: start_link() -> {ok,Pid} | ignore | {error,Error}
-%% Description: Starts the server
-%%--------------------------------------------------------------------
-test(OpMode,DX_Id) ->
-	start_link({OpMode,DX_Id,20}).
-
-start_link(InitOptions) ->
-	gen_server:start_link(?MODULE, InitOptions, []).
-
-start(InitOptions) -> 
-	gen_server:start(?MODULE, InitOptions, []).
-	
-start_link() ->
-	gen_server:start_link(?MODULE, [], []).
-    
-start() -> 
-	gen_server:start(?MODULE, [], []).
-	
-init(Pid,InitState)->
-	gen_server:cast(Pid,{init,InitState}).
-
-%%==================================================================== gen_server callbacks
-%%--------------------------------------------------------------------
-%% Function: init(Args) -> {ok, State} |
-%%                         {ok, State, Timeout} |
-%%                         ignore               |
-%%                         {stop, Reason}
-%% Description: Initiates the server
-%%--------------------------------------------------------------------
-init([])->
-	{ok,[]};
-init({OpMode,DX_Id,MT}) ->
-	{A,B,C} = now(),
-	random:seed(A,B,C),
-	[DX] = mnesia:dirty_read({dx,DX_Id}),
-	mnesia:dirty_write(DX#dx{mode=online}),
-	N_Ids = DX#dx.n_ids,
-	Generation = DX#dx.generation,
-	Active_NIds = extract_CurGenNIds(N_Ids,Generation,3,[]),
-	Tot_ActiveNeuron_Weights = extract_NWeightCount(Active_NIds,0),
-	Max_Trials = case ?MAX_TRIALS_TYPE of
-		const ->
-			10;
-		individual ->
-			20 + functions:sat(round(math:sqrt(Tot_ActiveNeuron_Weights)),100,0);
-		population ->
-			MT;
-		dx ->
-			dx
-	end,
-	put(max_attempts,Max_Trials),
-%	io:format("Max_Trials:~p Active_NIds:~p~n",[Max_Trials,Active_NIds]),
-	
-	IdsNPids = ets:new(idsNpids,[set,private]),
-	spawn_CerebralUnits(DX,IdsNPids),
-	link_CerebralUnits(DX,IdsNPids,OpMode,1),
-	%activate_CerebralUnits(DX,IdsNPids),
-	Cx_Id = DX#dx.cx_id,
-	Cx_Pid = ets:lookup_element(IdsNPids,Cx_Id,2),
-
-	%io:format("DX:~p~n",[DX]),
-	StartTime = now(),
-	InitState = #state{op_mode=OpMode,dx=DX,active_nids=Active_NIds,ids_n_pids=IdsNPids,cx_id=Cx_Id,start_time=StartTime,generation = Generation},
-%	io:format("******** ExoSelf:~p started.~n",[self()]),
-	put(tot_mutations,0), %Just to keep track of statistics
-	{ok, InitState}.
-
-%%--------------------------------------------------------------------
-%% Function: %% handle_call(Request, From, State) -> {reply, Reply, State} |
-%%                                      {reply, Reply, State, Timeout} |
-%%                                      {noreply, State} |
-%%                                      {noreply, State, Timeout} |
-%%                                      {stop, Reason, Reply, State} |
-%%                                      {stop, Reason, State}
-%% Description: Handling call messages
-%%--------------------------------------------------------------------
-handle_call({weight_mutate},{Cx_PId,_Ref}, S)->
-	DX=S#state.dx,
-	IdsNPids = S#state.ids_n_pids,
-	N_Ids = DX#dx.n_ids,
-	{PId_Selection_Method,Annealing,TMR,AP} = case ?EVO_STRAT of
-		static ->
-			{?PID_SELECTION_METHOD,?ANNEALING,?TUNING_MUTATION_RANGE,?ANNEALING_PARAMETER};
-		evolving ->
-			ANST = (DX#dx.evo_strat)#agent_evo_strat.active_neuron_selection_type,
-			TAF = (DX#dx.evo_strat)#agent_evo_strat.tuning_annealing_flag,
-			TuningMR = (DX#dx.evo_strat)#agent_evo_strat.tuning_mutation_range,
-			AnnealingP = (DX#dx.evo_strat)#agent_evo_strat.annealing_parameter,
-			{ANST,TAF,TuningMR,AnnealingP}
-	end,
-	NIdPs = case PId_Selection_Method of
-		dynamic ->
-			ChosenN_IdPs = case extract_CurGenNIdPs(N_Ids,S#state.generation,math:sqrt(1/random:uniform()),TMR,AP,[]) of
-				[] ->
-					[N_Id|_] = N_Ids,
-					[{N_Id,?DELTA_MULTIPLIER}];
-				ExtractedN_IdPs->
-					ExtractedN_IdPs
-			end,
-			%io:format("ChosenN_IdPs:~p~n",[ChosenN_IdPs]),
-			ChosenN_IdPs;
-		dynamic_random ->
-			ChosenN_IdPs = case extract_CurGenNIdPs(N_Ids,S#state.generation,math:sqrt(1/random:uniform()),TMR,AP,[]) of
-				[] ->
-					[N_Id|_] = N_Ids,
-					[{N_Id,?DELTA_MULTIPLIER}];
-				ExtractedN_IdPs->
-					ExtractedN_IdPs
-			end,
-			%io:format("ChosenN_IdPs:~p~n",[ChosenN_IdPs]),
-			Tot_Neurons = length(ChosenN_IdPs),
-			MutationP = 1/math:sqrt(Tot_Neurons),
-			choose_randomNIdPs(MutationP,ChosenN_IdPs);
-		active ->
-			extract_CurGenNIdPs(N_Ids,S#state.generation,3,TMR,AP,[]);
-		active_random ->
-			ChosenN_IdPs = case extract_CurGenNIdPs(N_Ids,S#state.generation,3,TMR,AP,[]) of
-				[] ->
-					[N_Id|_] = N_Ids,
-					[{N_Id,?DELTA_MULTIPLIER}];
-				ExtractedN_IdPs->
-					ExtractedN_IdPs
-			end,
-			Tot_Neurons = length(ChosenN_IdPs),
-			MutationP = 1/math:sqrt(Tot_Neurons),
-			choose_randomNIdPs(MutationP,ChosenN_IdPs);
-		current ->
-			case extract_CurGenNIdPs(N_Ids,S#state.generation,0,TMR,AP,[]) of
-				[] ->
-					[N_Id|_] = N_Ids,
-					[{N_Id,?DELTA_MULTIPLIER}];
-				IdPs ->
-					IdPs
-			end;
-		current_random ->
-			ChosenN_IdPs = case extract_CurGenNIdPs(N_Ids,S#state.generation,0,TMR,AP,[]) of
-				[] ->
-					[N_Id|_] = N_Ids,
-					[{N_Id,?DELTA_MULTIPLIER}];
-				IdPs ->
-					IdPs
-			end,
-			Tot_Neurons = length(ChosenN_IdPs),
-			MutationP = 1/math:sqrt(Tot_Neurons),
-			choose_randomNIdPs(MutationP,ChosenN_IdPs);
-		all ->
-			case extract_CurGenNIdPs(N_Ids,S#state.generation,S#state.generation,TMR,AP,[]) of
-				[] ->
-					[N_Id|_] = N_Ids,
-					[{N_Id,?DELTA_MULTIPLIER}];
-				IdPs ->
-					IdPs
-			end;
-		all_random ->
-			ChosenN_IdPs = case extract_CurGenNIdPs(N_Ids,S#state.generation,S#state.generation,TMR,AP,[]) of
-				[] ->
-					[N_Id|_] = N_Ids,
-					[{N_Id,?DELTA_MULTIPLIER}];
-				IdPs ->
-					IdPs
-			end,
-			Tot_Neurons = length(ChosenN_IdPs),
-			MutationP = 1/math:sqrt(Tot_Neurons),
-			choose_randomNIdPs(MutationP,ChosenN_IdPs)
-	end,
-	%io:format("NIdPs:~p~n",[NIdPs]),
-	case Annealing of
-		true ->		
-			[ets:lookup_element(IdsNPids,NId,2) ! {self(),gt,weight_mutate,Spread} || {NId,Spread} <- NIdPs];
-		false ->
-			[ets:lookup_element(IdsNPids,NId,2) ! {self(),gt,weight_mutate,?DELTA_MULTIPLIER} || {NId,_Spread} <- NIdPs]
-	end,
-	%io:format("N_Ids:~p NPIdPs:~p~n",[N_Ids,NPIdPs]),
-	Tot_Mutations = get(tot_mutations),
-	put(tot_mutations,Tot_Mutations+1),
-	{reply, done,S};
-
-handle_call({weight_save},{Cx_PId,_Ref},S)->
-	DX=S#state.dx,
-	N_Ids = DX#dx.n_ids,
-	IdsNPids = S#state.ids_n_pids,
-	[ets:lookup_element(IdsNPids,NId,2) ! {self(),gt,weight_save} || NId <- DX#dx.n_ids],
-	{reply,done,S};
-	
-handle_call({weight_revert},{Cx_PId,_Ref}, S)->
-	DX=S#state.dx,
-	IdsNPids = S#state.ids_n_pids,
-%	io:format("DX:~p~n",[DX]),
-	Summary = DX#dx.summary,
-	[ets:lookup_element(IdsNPids,NId,2) ! {self(),gt,weight_revert} || NId <- DX#dx.n_ids],
-	{reply, done, S};
-
-handle_call({backup_request},{Cx_PId,_Ref},S)->
-	DX=S#state.dx,
-	IdsNPids = S#state.ids_n_pids,
-	
-	backup_DX(DX,IdsNPids),
-%	io:format("Backup of DX: ~p completed.~n",[DX#dx.id]),
-	{reply, done, S};
-
-handle_call(memory_reset,{Cx_PId,_Ref},S)->
-	DX=S#state.dx,
-	IdsNPids = S#state.ids_n_pids,
-	NeuroIds = DX#dx.n_ids,
-	Cx_Id = DX#dx.cx_id,
-	[ets:lookup_element(IdsNPids,N_Id,2) ! {self(), memory_reset} || N_Id <- NeuroIds],
-	gather_acks(length(NeuroIds)),
-	[ets:lookup_element(IdsNPids,N_Id,2) ! {self(), reset} || N_Id <- NeuroIds],
-%	io:format("Reseting Memory~n"),
-	{reply, done, S};
-
-handle_call({stop,normal},_From, State)->
-	{stop, normal, State};
-handle_call({stop,shutdown},_From,State)->
-	{stop, shutdown, State}.
-
-%%--------------------------------------------------------------------
-%% Function: handle_cast(Msg, State) -> {noreply, State} |
-%%                                      {noreply, State, Timeout} |
-%%                                      {stop, Reason, State}
-%% Description: Handling cast messages
-%%--------------------------------------------------------------------
-handle_cast({Cx_Pid,tpt,success},S)->
-	OpMode = S#state.op_mode,
-	DX=S#state.dx,
-	IdsNPids = S#state.ids_n_pids,
-	StartTime = S#state.start_time,
-	io:format("Throughput Test completed in: ~p us.~n",[integer_to_list(timer:now_diff(now(),StartTime))]),
-	{stop,normal,{OpMode,DX,IdsNPids}};
-
-handle_cast({Cx_Pid,fitness,{FitnessType,Fitness,Goal_Status}},S)->
-	OpMode = S#state.op_mode,
-	DX=S#state.dx,
-	IdsNPids = S#state.ids_n_pids,
-	StartTime = S#state.start_time,
-	{Fitness,Profile} = technome_constructor:construct_FitnessProfile(DX,Fitness),
-	%[DX] = mnesia:dirty_read({dx,DX_Id}),
-	mnesia:dirty_write(DX#dx{
-		fitness = Fitness,
-		profile = Profile
-	}),
-	TimeElapsed = integer_to_list(timer:now_diff(now(),StartTime)),
-	io:format("DX_Id:~p::~n OpMode:~p~n TimeElapsed:~pus~n FType:~p~n Fitness:~p~n FProfile:~p~n",[DX#dx.id,OpMode,TimeElapsed,FitnessType,Fitness,Profile]),
-	%io:format("Id:~p Fitness:~p Fitness_Profile:~p~n",[DX_Id,Fitness,Fitness_Profile]),	
-	{stop,normal,{OpMode,DX,IdsNPids,{FitnessType,Fitness,Profile}}};
-
-handle_cast({Cx_Pid,championship_fitness,{FitnessType,Fitness,Goal_Status}},S)->
-	OpMode = S#state.op_mode,
-	DX=S#state.dx,
-	IdsNPids = S#state.ids_n_pids,
-	StartTime = S#state.start_time,
-	{TrueFitness,FitnessProfile} = technome_constructor:construct_FitnessProfile(DX,Fitness),
-	TimeElapsed = integer_to_list(timer:now_diff(now(),StartTime)),
-	io:format("DX_Id:~p::~n OpMode:~p~n TimeElapsed:~pus~n FType:~p~n Fitness:~p~n FProfile:~p~n",[DX#dx.id,OpMode,TimeElapsed,FitnessType,TrueFitness,FitnessProfile]),
-	{stop,normal,{OpMode,DX,IdsNPids,{FitnessType,TrueFitness,FitnessProfile}}};
-
-handle_cast({Cx_Pid,benchmark_fitness,{FitnessType,Fitness,Goal_Status}},S)->
-	OpMode = S#state.op_mode,
-	DX=S#state.dx,
-	IdsNPids = S#state.ids_n_pids,
-	StartTime = S#state.start_time,
-	{TrueFitness,FitnessProfile} = technome_constructor:construct_FitnessProfile(DX,Fitness),
-	TimeElapsed = integer_to_list(timer:now_diff(now(),StartTime)),
-	io:format("DX_Id:~p::~n OpMode:~p~n TimeElapsed:~pus~n FType:~p~n Fitness:~p~n FProfile:~p~n",[DX#dx.id,OpMode,TimeElapsed,FitnessType,TrueFitness,FitnessProfile]),
-	monitor ! {DX#dx.id,TrueFitness,FitnessProfile},
-	{stop,normal,{OpMode,DX,IdsNPids,{FitnessType,TrueFitness,FitnessProfile}}};
-
-handle_cast({Cx_Pid,test_fitness,{FitnessType,Fitness,Goal_Status}},S)->
-	OpMode = S#state.op_mode,
-	DX=S#state.dx,
-	IdsNPids = S#state.ids_n_pids,
-	StartTime = S#state.start_time,
-	{TrueFitness,FitnessProfile} = technome_constructor:construct_FitnessProfile(DX,Fitness),
-	TimeElapsed = integer_to_list(timer:now_diff(now(),StartTime)),
-	io:format("DX_Id:~p::~n OpMode:~p~n TimeElapsed:~pus~n FType:~p~n Fitness:~p~n FProfile:~p~n",[DX#dx.id,OpMode,TimeElapsed,FitnessType,TrueFitness,FitnessProfile]),
-	[io:format("FITNESS:~p~n",[Val]) || Val <- Fitness],	
-	{stop,normal,{OpMode,DX,IdsNPids,{FitnessType,TrueFitness,FitnessProfile}}};
-
-handle_cast({_Scape_PId,mutant_clone,granted,_DX_PId},S)->
-	DX=S#state.dx,
-	DX_Id = DX#dx.id,
-	gen_server:cast(monitor,{request,offspring,DX_Id}),
-	{noreply, S};
-handle_cast({_From,terminate},S)->
-	DX=S#state.dx,
-	IdsNPIds = S#state.ids_n_pids,
-	Cx_PId = ets:lookup_element(IdsNPIds,S#state.cx_id,2),
-	Cx_PId ! {self(),terminate},
-	{stop,normal,{terminate,DX,IdsNPIds}};
-	
-handle_cast({stop,shutdown},S)->
-	OpMode = S#state.op_mode, 
-	DX=S#state.dx,
-	IdsNPids = S#state.ids_n_pids,
-%	io:format("~p Shut_Down after: ~p us.~n",[OpMode,integer_to_list(timer:now_diff(now(),StartTime))]),
-	{stop,shutdown,{OpMode,DX,IdsNPids}};
-	
-handle_cast({stop,normal},S)->
-	OpMode = S#state.op_mode, 
-	DX=S#state.dx,
-	IdsNPids = S#state.ids_n_pids,
-%	io:format("~p Normal_End after: ~p us.~n",[OpMode,integer_to_list(timer:now_diff(now(),StartTime))]),
-	{stop, normal, {OpMode,DX,IdsNPids}}.
-	
-%%--------------------------------------------------------------------
-%% Function: handle_info(Info, State) -> {noreply, State} |
-%%                                       {noreply, State, Timeout} |
-%%                                       {stop, Reason, State}
-%% Description: Handling all non call/cast messages
-%%--------------------------------------------------------------------
-handle_info(_Info, State) ->
-    {noreply, State}.
-
-%%--------------------------------------------------------------------
-%% Function: terminate(Reason, State) -> void()
-%% Description: This function is called by a gen_server when it is about to
-%% terminate. It should be the opposite of Module:init/1 and do any necessary
-%% cleaning up. When it returns, the gen_server terminates with Reason.
-%% The return value is ignored.
-%%--------------------------------------------------------------------
-terminate(Reason, State) ->
-%	io:format("State:~p~n",[State]),
-	case State of
-		{tpt,DX,IdsNPids}->
-			deactivate_DX(DX,IdsNPids),
-			ets:delete(IdsNPids);
-		{OpMode,DX,IdsNPids,{FitnessType,Fitness,Fitness_Profile}} -> 
-			deactivate_DX(DX,IdsNPids),
-			ets:delete(IdsNPids),
-			%timer:sleep(1000),
-			DX_Id = DX#dx.id,
-			case OpMode of
-				championship ->
-					case DX#dx.morphology of
-						flatlander ->
-							gen_server:cast(monitor,{DX_Id,champion_terminated,Fitness,Fitness_Profile});
-						prey ->
-							gen_server:cast(monitor,{DX_Id,champion_terminated,Fitness,Fitness_Profile});
-						_ ->
-							gen_server:cast(monitor,{DX_Id,champion_terminated,Fitness,Fitness_Profile})
-							%io:format("******** ExoSelf: ~p terminated with reason: ~p::OpMode:~p DX_Id:~p::~n",[self(),Reason,OpMode,DX_Id]),
-					end;
-				benchmark ->
-					void;
-				test ->
-					ets:insert(potato,{self(),Fitness});
-				_ ->
-					case DX#dx.morphology of
-						flatlander ->
-							gen_server:cast(monitor,{DX_Id,terminated,Fitness,Fitness_Profile});
-						prey ->
-							gen_server:cast(monitor,{DX_Id,terminated,Fitness,Fitness_Profile});
-						_ ->
-							gen_server:cast(monitor,{DX_Id,terminated,Fitness,Fitness_Profile})
-							%io:format("******** ExoSelf: ~p terminated with reason: ~p::OpMode:~p DX_Id:~p::~n",[self(),Reason,OpMode,DX_Id]),
-					end
-			end,
-			[Current_DX] = mnesia:dirty_read({dx,DX_Id}),
-			mnesia:dirty_write(Current_DX#dx{mode=offline});
-		{terminate,DX,IdsNPIds} ->
-			deactivate_DX(DX,IdsNPIds),
-			ets:delete(IdsNPIds);
-		{_OpMode,DX,IdsNPids}->
-			deactivate_DX(DX,IdsNPids),
-			ets:delete(IdsNPids);
-		OTHER ->
-			io:format("Severe crash with state:~p~n",[OTHER])
-	end,
-	io:format("******** ExoSelf: ~p terminated with reason: ~p~n",[self(),Reason]),
-	ok.
-
-%%--------------------------------------------------------------------
-%% Func: code_change(OldVsn, State, Extra) -> {ok, NewState}
-%% Description: Convert process state when code is changed
-%%--------------------------------------------------------------------
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
-
-%%--------------------------------------------------------------------
-%%% Internal functions
-%%--------------------------------------------------------------------
-%==================================================================Summoning Functions==================================================================
-spawn_CerebralUnits(DX,IdsNPids)->
-	Cx_Id = DX#dx.cx_id,
-	[Cx] = mnesia:dirty_read({cortex,Cx_Id}),
-	spawn_CerebralUnit(IdsNPids,neuron,DX#dx.n_ids),
-	spawn_CerebralUnit(IdsNPids,cortex,[DX#dx.cx_id]),
-	ets:insert(IdsNPids,{threshold,threshold}).
-	
-	spawn_CerebralUnit(IdsNPids,CerebralUnitType,[Id|Ids])->
-		{ok,Pid} = CerebralUnitType:gen(self(),node()),
-		ets:insert(IdsNPids,{Id,Pid}),
-		ets:insert(IdsNPids,{Pid,Id}),
-		%io:format("Spawn_Neurons::N_Id:~p, N_PId:~p~n",[N_Id,N_Pid]),
-		spawn_CerebralUnit(IdsNPids,CerebralUnitType,Ids);
-	spawn_CerebralUnit(_IdsNPids,_CerebralUnitType,[])->
-		true.
-	
-link_CerebralUnits(DX,IdsNPids,OpMode,Smoothness)->
-	Cx_Id = DX#dx.cx_id,
-	[Cx] = mnesia:dirty_read({cortex,Cx_Id}),
-	link_Neurons(IdsNPids,DX#dx.n_ids),
-	link_Cortex(IdsNPids,DX#dx.cx_id,OpMode,Smoothness).
-
-	link_Neurons(IdsNPids,[N_Id|N_Ids])->
-		[N] = mnesia:dirty_read({neuron,N_Id}),
-		%io:format("~p~n",[N]),
-		N_PId = ets:lookup_element(IdsNPids,N_Id,2),
-		I_PIds = [{ets:lookup_element(IdsNPids,I_Id,2),IVL}|| {I_Id,IVL} <- N#neuron.i], %I from Cortex xor Subcore or Neurons
-		O_PIds = [ets:lookup_element(IdsNPids,O_Id,2)|| O_Id <- N#neuron.o], %O to Cortex xor Subcore or Neurons
-		RO_PIds =[ets:lookup_element(IdsNPids,RO_Id,2)|| RO_Id <- N#neuron.ro],
-		NDWP = case N#neuron.type of
-			standard ->
-				[{ets:lookup_element(IdsNPids,Id,2),WPC} || {Id,WPC} <- N#neuron.dwp];
-			bst ->
-				N#neuron.dwp
-		end,
-		%io:format("I_PIds:~p~n NDWP:~p~n",[I_PIds,NDWP]),
-		TotIVL = N#neuron.ivl,
-		TotOVL = N#neuron.ovl,
-		LearningType = N#neuron.lt,
-		SU_Id = N#neuron.su_id,
-		State = {self(),N_Id,SU_Id,TotIVL,I_PIds,TotOVL,O_PIds,LearningType,RO_PIds,NDWP},
-		N_PId ! {self(),init,State},
-		link_Neurons(IdsNPids,N_Ids);
-	link_Neurons(_IdsNPids,[])->
-		true.
-
-	link_Cortex(IdsNPids,Cx_Id,OpMode,Smoothness)->
-		[Cx] = mnesia:dirty_read({cortex,Cx_Id}),
-		Cx_Pid = ets:lookup_element(IdsNPids,Cx_Id,2),
-		Cx_Type = Cx#cortex.type,
-		Cx_Plascity = Cx#cortex.plasticity,
-		case Cx#cortex.type of
-			neural ->
-				Sensors = [Sensor|| {Sensor,_NIdPs} <- Cx#cortex.ct],
-				Actuators= [Actuator||{Actuator,_NIds} <-Cx#cortex.cf];
-			hypercube ->
-				Sensors = Cx#cortex.sensors,
-				Actuators = Cx#cortex.actuators
-		end,
-		Cx_CF = convert_Ids2PIds(IdsNPids,Cx#cortex.cf,[]),
-		Cx_CT = convert_Ids2PIds(IdsNPids,Cx#cortex.ct,[]),
-		Dimensions = Cx#cortex.dimensions,
-		Densities = Cx#cortex.densities,
-%		io:format("~p~n",[Cx]),
-		[DX] = mnesia:dirty_read({dx,Cx#cortex.su_id}),
-		Morphology = DX#dx.morphology,
-		Specie_Id = DX#dx.specie_id,
-		State={self(),Cx_Id,Sensors,Actuators,Cx_CF,Cx_CT,get(max_attempts),Smoothness,OpMode,Cx_Type,Cx_Plascity,Morphology,Specie_Id,length(Cx#cortex.cids),Dimensions,Densities,Cx#cortex.substrate_link_form},
-		Cx_Pid ! {self(),init,State},
-		true.
-
-		convert_Ids2PIds(TableName,[{R,Ids}|LinkList],Acc) when is_record(R,actuator) -> %Neural: CF
-			convert_Ids2PIds(TableName,LinkList,[{R,[ets:lookup_element(TableName,Id,2)|| Id<-Ids]}|Acc]);
-		convert_Ids2PIds(TableName,[{R,IdPs}|LinkList],Acc) when is_record(R,sensor) ->%Neural: CT 
-			convert_Ids2PIds(TableName,LinkList,[{R,[{ets:lookup_element(TableName,Id,2),Tag}|| {Id,Tag}<-IdPs]}|Acc]);
-		convert_Ids2PIds(TableName,[{R,Ids}|LinkList],Acc) when is_record(R,sCF)->%Hypercube: CF
-			convert_Ids2PIds(TableName,LinkList,[{R,[ets:lookup_element(TableName,Id,2)|| Id<-Ids]}|Acc]);
-		convert_Ids2PIds(TableName,[{R,IdPs}|LinkList],Acc) when is_record(R,sCT)->%Hypercube: CT 
-			convert_Ids2PIds(TableName,LinkList,[{R,[{ets:lookup_element(TableName,Id,2),Tag}|| {Id,Tag}<-IdPs]}|Acc]);
-		convert_Ids2PIds(_TableName,[],Acc)->
-			lists:reverse(Acc).
-
-deactivate_DX(DX,IdsNPids)->
-	Cx_Id = DX#dx.cx_id,
-	[Cx] = mnesia:dirty_read({cortex,Cx_Id}),
-	[ets:lookup_element(IdsNPids,Id,2) ! {self(),terminate} || Id <- DX#dx.n_ids],
-	[ets:lookup_element(IdsNPids,Id,2) ! {self(),terminate} || Id <- [DX#dx.cx_id]].
-	
-backup_DX(DX,IdsNPids) ->
-%	io:format("Backing up DX~n"),
-	backup_Neurons(IdsNPids,DX#dx.n_ids),
-	done.
-		
-	backup_Neurons(IdsNPids,[N_Id|N_Ids])->
-		N_PId = ets:lookup_element(IdsNPids,N_Id,2),
-		N_PId ! {self(),get_backup},
-		receive
-			{N_PId,backup,{IList,O_PIds,RO_PIds,LT,NDWP}} ->
-				[N] = mnesia:dirty_read({neuron,N_Id}),
-				I = [{ets:lookup_element(IdsNPids,I_PId,2),IVL}|| {I_PId,IVL} <- IList], %I from Cortex xor Subcore or Neurons
-				O = [ets:lookup_element(IdsNPids,O_PId,2)|| O_PId <- O_PIds], %O to Cortex xor Subcore or Neurons
-				RO =[ets:lookup_element(IdsNPids,RO_PId,2)|| RO_PId <- RO_PIds],
-				DWP = case N#neuron.type of
-					standard ->
-						[{ets:lookup_element(IdsNPids,PId,2),WPC} || {PId,WPC} <- NDWP];
-					bst ->
-						NDWP
-				end,
-				mnesia:dirty_write(neuron,N#neuron{
-					i = I,
-					o = O,
-					ro = RO,
-					lt = LT,
-					dwp = DWP
-				})
-		end,
-		%io:format("Backing up: N_Id:~p DWP:~p~n",[N_Id,DWP]),
-		backup_Neurons(IdsNPids,N_Ids);
-	backup_Neurons(_IdsNPids,[])->
-		done.
-
-choose_randomNIdPs(MutationP,N_IdPs)->
-	case choose_randomNIdPs(N_IdPs,MutationP,[]) of
-		[] ->
-			{NId,Spread} = lists:nth(random:uniform(length(N_IdPs)),N_IdPs),
-			[{NId,Spread}];
-		Acc ->
-			Acc
+start(Agent_Id)->
+	case whereis(monitor) of
+		undefined ->
+			io:format("start(Agent_Id):: 'monitor' is not registered~n");
+		PId ->
+			start(Agent_Id,PId,gt)
 	end.
 
-	choose_randomNIdPs([{NId,Spread}|N_IdPs],MutationP,Acc)->
-		U_Acc = case random:uniform() < MutationP of
-			true ->
-				[{NId,Spread}|Acc];
-			false ->
-				Acc
+start(Agent_Id,PM_PId)->
+	start(Agent_Id,PM_PId,gt).
+
+start(Agent_Id,PM_PId,OpMode)->
+	spawn(exoself,prep,[Agent_Id,PM_PId,OpMode]).
+%The start/3 function spawns a new Agent_Id exoself process, belonging to the population_monitor process with the pid PM_PId, and using the OpMode with which it was spawned.
+
+prep(Agent_Id,PM_PId,OpMode)->
+	random:seed(now()),
+	IdsNPIds = ets:new(idsNpids,[set,private]), 
+	A = genotype:dirty_read({agent,Agent_Id}),
+	HeredityType = A#agent.heredity_type,
+	Cx = genotype:dirty_read({cortex,A#agent.cx_id}),
+	SIds = Cx#cortex.sensor_ids,
+	AIds = Cx#cortex.actuator_ids,
+	NIds = Cx#cortex.neuron_ids,
+	ScapePIds = spawn_Scapes(IdsNPIds,SIds,AIds,Agent_Id),
+	spawn_CerebralUnits(IdsNPIds,cortex,[Cx#cortex.id]),
+	spawn_CerebralUnits(IdsNPIds,sensor,SIds),
+	spawn_CerebralUnits(IdsNPIds,actuator,AIds),
+	spawn_CerebralUnits(IdsNPIds,neuron,NIds),
+	case A#agent.encoding_type of
+		substrate ->
+			Substrate_Id=A#agent.substrate_id,
+			Substrate = genotype:dirty_read({substrate,Substrate_Id}),
+			CPP_Ids = Substrate#substrate.cpp_ids,
+			CEP_Ids = Substrate#substrate.cep_ids,
+			spawn_CerebralUnits(IdsNPIds,substrate_cpp,CPP_Ids),
+			spawn_CerebralUnits(IdsNPIds,substrate_cep,CEP_Ids),
+			spawn_CerebralUnits(IdsNPIds,substrate,[Substrate_Id]),
+			
+			Substrate_PId=ets:lookup_element(IdsNPIds,Substrate_Id,2),
+			link_SubstrateCPPs(CPP_Ids,IdsNPIds,Substrate_PId),
+			link_SubstrateCEPs(CEP_Ids,IdsNPIds,Substrate_PId),
+			SDensities = Substrate#substrate.densities,
+			SPlasticity = Substrate#substrate.plasticity,
+			SLinkform = Substrate#substrate.linkform,
+			Sensors=[genotype:dirty_read({sensor,SId})||SId <- SIds],
+			Actuators=[genotype:dirty_read({actuator,AId})||AId <- AIds],		
+			CPP_PIds=[ets:lookup_element(IdsNPIds,Id,2)||Id<-CPP_Ids],
+			CEP_PIds=[ets:lookup_element(IdsNPIds,Id,2)||Id<-CEP_Ids],
+			Substrate_PId ! {self(),init,{Sensors,Actuators,[ets:lookup_element(IdsNPIds,Id,2)||Id<-SIds],[ets:lookup_element(IdsNPIds,Id,2)||Id<-AIds],CPP_PIds,CEP_PIds,SDensities,SPlasticity,SLinkform}};
+		_ ->
+			CPP_PIds=[],
+			CEP_PIds=[],
+			Substrate_PId = undefined
+	end,
+	link_Sensors(SIds,IdsNPIds,OpMode),
+	link_Actuators(AIds,IdsNPIds,OpMode),
+	link_Neurons(NIds,IdsNPIds,HeredityType),
+	{SPIds,NPIds,APIds}=link_Cortex(Cx,IdsNPIds),
+	Cx_PId = ets:lookup_element(IdsNPIds,Cx#cortex.id,2),
+	{TuningDurationFunction,Parameter} = A#agent.tuning_duration_f,
+	S = #state{
+		agent_id=Agent_Id,
+		generation=A#agent.generation,
+		pm_pid=PM_PId,
+		idsNpids=IdsNPIds,
+		cx_pid=Cx_PId,
+		specie_id=A#agent.specie_id,
+		spids=SPIds,
+		npids=NPIds,
+		nids=NIds,
+		apids=APIds,
+		substrate_pid=Substrate_PId,
+		cpp_pids = CPP_PIds,
+		cep_pids = CEP_PIds,
+		scape_pids=ScapePIds,
+		max_attempts= tuning_duration:TuningDurationFunction(Parameter,NIds,A#agent.generation),
+		tuning_selection_f=A#agent.tuning_selection_f,
+		annealing_parameter=A#agent.annealing_parameter,
+		tuning_duration_f=A#agent.tuning_duration_f,
+		perturbation_range=A#agent.perturbation_range,
+		opmode=OpMode
+	},
+	%io:format("S:~p~n",[{S,OpMode}]),
+	loop(S,OpMode).
+%The prep/2 function prepares and sets up the exoself's state before dropping into the main loop. The function first reads the agent and cortex records belonging to the Agent_Id NN based system. The function then reads the sensor, actuator, and neuron ids, then spawns the private scapes using the spawn_Scapes/3 function, spawns the cortex, sensor, actuator, and neuron processes, and then finally links up all these processes together using the link_.../2 processes. Once the phenotype has been generated from the genotype, the exoself drops into its main loop.
+
+loop(S,gt)->
+	receive
+		{Cx_PId,evaluation_completed,Fitness,Cycles,Time,GoalReachedFlag}->
+			%io:format("E Msg:~p~n E S:~p~n",[{Cx_PId,evaluation_completed,Fitness,Cycles,Time,GoalReachedFlag},S]),
+			IdsNPIds = S#state.idsNpids,
+			{U_HighestFitness,U_Attempt}=case Fitness > S#state.highest_fitness of
+				true ->
+					[NPId ! {self(),weight_backup} || NPId <- S#state.npids],
+					{Fitness,0};
+				false ->
+					Perturbed_NIdPs=get(perturbed),
+					[ets:lookup_element(IdsNPIds,NId,2) ! {self(),weight_restore} || {NId,_Spread} <- Perturbed_NIdPs],
+					{S#state.highest_fitness,S#state.attempt+1}
+			end,
+			[PId ! {self(), reset_prep} || PId <- S#state.npids],
+			gather_acks(length(S#state.npids)),
+			[PId ! {self(), reset} || PId <- S#state.npids],
+			case S#state.substrate_pid of
+				undefined ->
+					ok;
+				Substrate_PId ->
+					Substrate_PId ! {self(),reset_substrate},
+					receive
+						{Substrate_PId,ready}->
+							ok
+					end
+			end,
+			%io:format("HighestFitness:~p U_Attempt:~p~n",[U_HighestFitness,U_Attempt]),
+			U_CycleAcc = S#state.cycle_acc+Cycles,
+			U_TimeAcc = S#state.time_acc+Time,
+			U_EvalAcc = S#state.eval_acc+1,
+			gen_server:cast(S#state.pm_pid,{self(),evaluations,S#state.specie_id,1,Cycles,Time}),
+			case (U_Attempt >= S#state.max_attempts) or (GoalReachedFlag == true) of
+				true ->	%End training
+					A=genotype:dirty_read({agent,S#state.agent_id}),
+					genotype:write(A#agent{fitness=U_HighestFitness}),
+					backup_genotype(S#state.idsNpids,S#state.npids),
+					terminate_phenotype(S#state.cx_pid,S#state.spids,S#state.npids,S#state.apids,S#state.scape_pids,S#state.cpp_pids,S#state.cep_pids,S#state.substrate_pid),
+					io:format("Agent:~p terminating. Genotype has been backed up.~n Fitness:~p~n TotEvaluations:~p~n TotCycles:~p~n TimeAcc:~p~n",[self(),U_HighestFitness,U_EvalAcc,U_CycleAcc,U_TimeAcc]),
+					case GoalReachedFlag of
+						true ->
+							gen_server:cast(S#state.pm_pid,{S#state.agent_id,goal_reached});
+						_ ->
+							ok
+					end,
+					gen_server:cast(S#state.pm_pid,{S#state.agent_id,terminated,U_HighestFitness});
+				false -> %Continue training
+					%io:format("exoself state:~p~n",[S]),
+					%enter_PublicScape(S#state.idsNpids,[genotype:dirty_read({sensor,Id})||Id<-S#state.spids],[genotype:dirty_read({actuator,Id})||Id<-S#state.apids],S#state.agent_id),
+					TuningSelectionFunction=S#state.tuning_selection_f,
+					PerturbationRange = S#state.perturbation_range,
+					AnnealingParameter = S#state.annealing_parameter,
+					ChosenNIdPs=tuning_selection:TuningSelectionFunction(S#state.nids,S#state.generation,PerturbationRange,AnnealingParameter),
+					[ets:lookup_element(IdsNPIds,NId,2) ! {self(),weight_perturb,Spread} || {NId,Spread} <- ChosenNIdPs],
+					%io:format("ChosenNPIds:~p~n",[ChosenNIdPs]),
+					put(perturbed,ChosenNIdPs),
+					Cx_PId ! {self(),reactivate},
+					U_S =S#state{
+						cycle_acc=U_CycleAcc,
+						time_acc=U_TimeAcc,
+						eval_acc=U_EvalAcc,
+						attempt=U_Attempt,
+						highest_fitness=U_HighestFitness
+					},
+					exoself:loop(U_S,gt)
+			end
+		%after 10000 ->
+		%	io:format("exoself:~p stuck.~n",[S#state.agent_id])
+	end;
+loop(S,benchmark)->
+	io:format("In the Benchmark loop~n"),
+	receive
+		{Cx_PId,evaluation_completed,Fitness,Cycles,Time,GoalReachedFlag}->
+			terminate_phenotype(S#state.cx_pid,S#state.spids,S#state.npids,S#state.apids,S#state.scape_pids,S#state.cpp_pids,S#state.cep_pids,S#state.substrate_pid),
+			io:format("Benchmark complete, agent:~p terminating. Fitness:~p~n TotCycles:~p~n TimeAcc:~p Goal:~p~n",[self(),Fitness,Cycles,Time,GoalReachedFlag]),
+			%ets:insert(testing,{self(),Fitness}),%%TODO
+			S#state.pm_pid ! {self(),benchmark_complete,S#state.specie_id,Fitness,Cycles,Time}
+	end.
+%The exoself process' main loop awaits from its cortex proccess the evoluation_completed message. Once the message is received, based on the fitness achieved, exoself decides whether to continue tunning the weights or terminate the system. Exoself tries to improve the fitness by perturbing/tuning the weights of its neurons, after each tuning session, the Neural Network based system performs another evaluation by interacting with the scape until completion (the NN solves a problem, or dies within the scape or...). The order of events is important: When evaluation_completed message is received, the function first checks whether the newly achieved fitness is higher than the highest fitness achieved so far. If it is not, the function sends the neurons a message to restore their weights to previous state, during which it last acehived the highest fitness instead of their current state which yielded the current lower fitness score. If on the other hand the new fitness is higher than the previously highest achieved fitness, then the function tells the neurons to backup their current weights, as these weights represent the NN's best, most fit form yet. Exoself then tells all the neurons to prepare for a reset by sending each neuron the {self(),reset_prep} message. Since the NN can have recursive connections, and the manner in which initial recursive messages are sent, it is important for each neuron to flush their buffers to be reset into an initial fresh state, which is achieved after the neurons receive the reset_prep message. The function then sends the reset message to the neurons, which returns them into their main loop. Finally, the function checks whether exoself has already tried to improve the NN's fitness a maximum S#state.max_attempts number of times. If that is the case, the exoself process backs up the updated NN (the updated, tuned weights) to database using the backup_genotype/2 function, prints to screen that it is terminating, and sends to the population_monitor the acumulated statistics (highest fitness, evaluation count, cycle count...). On the other hand, if the exoself is not yet done tuning the neural weights, it has not yet reached its ending condition, it uses a tuning_selection_function to compose a list of tuples: [{NId,Spread}...] of neuron ids and the perturbation spread values, where the spread is the range from which the perturbation is randomly chosen. The spread itself is based on the age of the slected neuron, using the annealing_factor value, which when set to 1 implies that there is no annealing, and when set to a value less than 1, decreases the Spread. Once this list of elements is composed, the exoself sends each of the neurons a message to perturb their synaptic weights using the Spread value. The exoself then reactivates the cortex, and drops back into its main loop.
+
+	spawn_CerebralUnits(IdsNPIds,CerebralUnitType,[Id|Ids])-> 
+		PId = CerebralUnitType:gen(self(),node()),
+		ets:insert(IdsNPIds,{Id,PId}), 
+		ets:insert(IdsNPIds,{PId,Id}), 
+		spawn_CerebralUnits(IdsNPIds,CerebralUnitType,Ids); 
+	spawn_CerebralUnits(IdsNPIds,_CerebralUnitType,[])-> 
+		ets:insert(IdsNPIds,{bias,bias}).
+%We spawn the process for each element based on its type: CerebralUnitType, and the gen function that belongs to the CerebralUnitType module. We then enter the {Id,PId} tuple into our ETS table for later use.
+
+	spawn_Scapes(IdsNPIds,Sensor_Ids,Actuator_Ids,Agent_Id)->
+		Sensor_Scapes = [(genotype:dirty_read({sensor,Id}))#sensor.scape || Id<-Sensor_Ids], 
+		Actuator_Scapes = [(genotype:dirty_read({actuator,Id}))#actuator.scape || Id<-Actuator_Ids], 
+		Unique_Scapes = Sensor_Scapes++(Actuator_Scapes--Sensor_Scapes), 
+		Private_SN_Tuples=[{scape:gen(self(),node()),ScapeName} || {private,ScapeName}<-Unique_Scapes],
+		[ets:insert(IdsNPIds,{ScapeName,PId}) || {PId,ScapeName} <- Private_SN_Tuples], 
+		[ets:insert(IdsNPIds,{PId,ScapeName}) || {PId,ScapeName} <-Private_SN_Tuples],
+		[PId ! {self(),ScapeName} || {PId,ScapeName} <- Private_SN_Tuples],
+		%enter_PublicScape(IdsNPIds,Sensor_Ids,Actuator_Ids,Agent_Id),
+		[PId || {PId,_ScapeName} <-Private_SN_Tuples].
+%The spawn_Scapes/3 function first extracts all the scapes that the sensors and actuators interface with, it then creates a filtered scape list which only holds unique scape records, after which it further only selects those scapes that are private, and spawns them.
+
+		enter_PublicScape(IdsNPIds,Sensor_Ids,Actuator_Ids,Agent_Id)->
+			io:format("SIds:~p AIds:~p~n",[Sensor_Ids,Actuator_Ids]),
+			A = genotype:dirty_read({agent,Agent_Id}),
+			Sensors = [genotype:dirty_read({sensor,Id}) || Id<-Sensor_Ids],
+			Actuators = [genotype:dirty_read({actuator,Id}) || Id<-Actuator_Ids],
+			TotNeurons = length((genotype:dirty_read({cortex,A#agent.cx_id}))#cortex.neuron_ids),
+			Morphology = (A#agent.constraint)#constraint.morphology,
+			Sensor_Scapes = [Sensor#sensor.scape || Sensor<-Sensors], 
+			Actuator_Scapes = [Actuator#actuator.scape || Actuator<-Actuators], 
+			Unique_Scapes = Sensor_Scapes++(Actuator_Scapes--Sensor_Scapes),
+			io:format("Unique_Scapes:~p~n",[Unique_Scapes]),
+			Public_SN_Tuples=[{gen_server:call(polis,{get_scape,ScapeName}),ScapeName} || {public,ScapeName}<-Unique_Scapes],
+			[gen_server:call(PId,{enter,Morphology,Agent_Id,Sensors,Actuators,TotNeurons}) || {PId,ScapeName} <- Public_SN_Tuples].
+			
+		reenter_PublicScape([PS_PId|PS_PIds],Sensors,Actuators,Agent_Id,Morphology,TotNeurons)->
+			gen_server:call(PS_PId,{enter,Morphology,Agent_Id,Sensors,Actuators,TotNeurons}),
+			reenter_PublicScape(PS_PIds,Sensors,Actuators,Agent_Id,Morphology,TotNeurons);
+		reenter_PublicScape([],_Sensors,_Actuators,_Agent_Id,_Morphology,_TotNeurons)->
+			ok.
+
+	link_Sensors([SId|Sensor_Ids],IdsNPIds,OpMode) ->
+		S=genotype:dirty_read({sensor,SId}),
+		SPId = ets:lookup_element(IdsNPIds,SId,2),
+		Cx_PId = ets:lookup_element(IdsNPIds,S#sensor.cx_id,2),
+		SName = S#sensor.name,
+		Fanout_Ids = S#sensor.fanout_ids,
+		Fanout_PIds = [ets:lookup_element(IdsNPIds,Id,2) || Id <- Fanout_Ids],
+		Scape=case S#sensor.scape of
+			{private,ScapeName}->
+				ets:lookup_element(IdsNPIds,ScapeName,2);
+			{public,ScapeName}->
+				%get_pid_of_forum
+				undefined;
+			_ ->
+				undefined
 		end,
-		choose_randomNIdPs(N_IdPs,MutationP,U_Acc);
-	choose_randomNIdPs([],_MutationP,Acc)->
+		SPId ! {self(),{SId,Cx_PId,Scape,SName,S#sensor.vl,S#sensor.parameters,Fanout_PIds,OpMode}},
+		link_Sensors(Sensor_Ids,IdsNPIds,OpMode);
+	link_Sensors([],_IdsNPIds,_OpMode)->
+		ok.
+%The link_Sensors/2 function sends to the already spawned and waiting sensors their states, composed of the PId lists and other information which are needed by the sensors to link up and interface with other elements in the distributed phenotype.
+
+	link_Actuators([AId|Actuator_Ids],IdsNPIds,OpMode) ->
+		A=genotype:dirty_read({actuator,AId}),
+		APId = ets:lookup_element(IdsNPIds,AId,2),
+		Cx_PId = ets:lookup_element(IdsNPIds,A#actuator.cx_id,2),
+		AName = A#actuator.name,
+		Fanin_Ids = A#actuator.fanin_ids,
+		Fanin_PIds = [ets:lookup_element(IdsNPIds,Id,2) || Id <- Fanin_Ids],
+		Scape=case A#actuator.scape of
+			{private,ScapeName}->
+				ets:lookup_element(IdsNPIds,ScapeName,2);
+			{public,ScapeName}->
+				%get_pid_of_forum
+				undefined;
+			_ ->
+				undefined
+		end,
+		APId ! {self(),{AId,Cx_PId,Scape,AName,A#actuator.parameters,Fanin_PIds,OpMode}},
+		link_Actuators(Actuator_Ids,IdsNPIds,OpMode);
+	link_Actuators([],_IdsNPIds,_OpMode)->
+		ok.
+%The link_Actuators2 function sends to the already spawned and waiting actuators their states, composed of the PId lists and other information which are needed by the actuators to link up and interface with other elements in the distributed phenotype.
+
+	link_SubstrateCPPs([CPP_Id|CPP_Ids],IdsNPIds,Substrate_PId) ->
+		CPP=genotype:dirty_read({sensor,CPP_Id}),
+		CPP_PId = ets:lookup_element(IdsNPIds,CPP_Id,2),
+		Cx_PId = ets:lookup_element(IdsNPIds,CPP#sensor.cx_id,2),
+		CPPName = CPP#sensor.name,
+		Fanout_Ids = CPP#sensor.fanout_ids,
+		Fanout_PIds = [ets:lookup_element(IdsNPIds,Id,2) || Id <- Fanout_Ids],
+		CPP_PId ! {self(),{CPP_Id,Cx_PId,Substrate_PId,CPPName,CPP#sensor.vl,CPP#sensor.parameters,Fanout_PIds}},
+		link_SubstrateCPPs(CPP_Ids,IdsNPIds,Substrate_PId);
+	link_SubstrateCPPs([],_IdsNPIds,_Substrate_PId)->
+		ok.
+%The link_Sensors/2 function sends to the already spawned and waiting sensors their states, composed of the PId lists and other information which are needed by the sensors to link up and interface with other elements in the distributed phenotype.
+
+	link_SubstrateCEPs([CEP_Id|CEP_Ids],IdsNPIds,Substrate_PId) ->
+		CEP=genotype:dirty_read({actuator,CEP_Id}),
+		CEP_PId = ets:lookup_element(IdsNPIds,CEP_Id,2),
+		Cx_PId = ets:lookup_element(IdsNPIds,CEP#actuator.cx_id,2),
+		CEPName = CEP#actuator.name,
+		Fanin_Ids = CEP#actuator.fanin_ids,
+		Fanin_PIds = [ets:lookup_element(IdsNPIds,Id,2) || Id <- Fanin_Ids],
+		CEP_PId ! {self(),{CEP_Id,Cx_PId,Substrate_PId,CEPName,CEP#actuator.parameters,Fanin_PIds}},
+		link_SubstrateCEPs(CEP_Ids,IdsNPIds,Substrate_PId);
+	link_SubstrateCEPs([],_IdsNPIds,_Substrate_PId)->
+		ok.
+%The link_SubstrateCEPs/2 function sends to the already spawned and waiting substrate_ceps their states, composed of the PId lists and other information which are needed by the substrate_ceps to link up and interface with other elements in the distributed phenotype.
+
+	link_Neurons([NId|Neuron_Ids],IdsNPIds,HeredityType) ->
+		N=genotype:dirty_read({neuron,NId}),
+		NPId = ets:lookup_element(IdsNPIds,NId,2),
+		Cx_PId = ets:lookup_element(IdsNPIds,N#neuron.cx_id,2),
+		AFName = N#neuron.af,
+		PFName = N#neuron.pf,
+		AggrFName = N#neuron.aggr_f,
+		Input_IdPs = N#neuron.input_idps,
+		Input_IdPs_Modulation = N#neuron.input_idps_modulation,
+		Output_Ids = N#neuron.output_ids,
+		RO_Ids = N#neuron.ro_ids,
+		SI_PIdPs = convert_IdPs2PIdPs(IdsNPIds,Input_IdPs,[]),
+		MI_PIdPs = convert_IdPs2PIdPs(IdsNPIds,Input_IdPs_Modulation,[]),
+		O_PIds = [ets:lookup_element(IdsNPIds,Id,2) || Id <- Output_Ids],
+		RO_PIds = [ets:lookup_element(IdsNPIds,Id,2) || Id <- RO_Ids],
+		NPId ! {self(),{NId,Cx_PId,AFName,PFName,AggrFName,HeredityType,SI_PIdPs,MI_PIdPs,O_PIds,RO_PIds}},
+		link_Neurons(Neuron_Ids,IdsNPIds,HeredityType);
+	link_Neurons([],_IdsNPIds,HeredityType)->
+		ok.
+%The link_Neurons/2 function sends to the already spawned and waiting neurons their states, composed of the PId lists and other information needed by the neurons to link up and interface with other elements in the distributed phenotype.
+
+		%convert_IdPs2PIdPs(_IdsNPIds,[{bias,[Bias]}],Acc)->
+		%	lists:reverse([Bias|Acc]);
+		convert_IdPs2PIdPs(IdsNPIds,[{Id,WeightsP}|Fanin_IdPs],Acc)->
+			convert_IdPs2PIdPs(IdsNPIds,Fanin_IdPs,[{ets:lookup_element(IdsNPIds,Id,2),WeightsP}|Acc]);
+		convert_IdPs2PIdPs(_IdsNPIds,[],Acc)->
+			lists:reverse(Acc).
+%The convert_IdPs2PIdPs/3 converts the IdPs tuples into tuples that use PIds instead of Ids, such that the Neuron will know which weights are to be associated with which incoming vector signals. The last element is the bias, which is added to the list in a non tuple form. Afterwards, the list is reversed to take its proper order.
+
+	link_Cortex(Cx,IdsNPIds) ->
+		Cx_Id = Cx#cortex.id,
+		Cx_PId = ets:lookup_element(IdsNPIds,Cx_Id,2),
+		SIds = Cx#cortex.sensor_ids,
+		AIds = Cx#cortex.actuator_ids,
+		NIds = Cx#cortex.neuron_ids,
+		SPIds = [ets:lookup_element(IdsNPIds,SId,2) || SId <- SIds],
+		NPIds = [ets:lookup_element(IdsNPIds,NId,2) || NId <- NIds],
+		APIds = [ets:lookup_element(IdsNPIds,AId,2) || AId <- AIds],
+		Cx_PId ! {self(),Cx_Id,SPIds,NPIds,APIds},
+		{SPIds,NPIds,APIds}.
+%The link_Cortex/2 function sends to the already spawned and waiting cortex its state, composed of the PId lists and other information which is needed by the cortex to link up and interface with other elements in the distributed phenotype.
+
+backup_genotype(IdsNPIds,NPIds)->
+	Neuron_IdsNWeights = get_backup(NPIds,[]),
+	update_genotype(IdsNPIds,Neuron_IdsNWeights),
+	io:format("Finished updating genotype~n").
+
+	get_backup([NPId|NPIds],Acc)->
+		NPId ! {self(),get_backup},
+		receive
+			{NPId,NId,SWeightTuples,MWeightTuples}->
+				get_backup(NPIds,[{NId,SWeightTuples,MWeightTuples}|Acc])
+		end;
+	get_backup([],Acc)->
 		Acc.
+%The backup_genotype/2 uses get_backup/2 to contact all the neurons in its NN and request for the neuron's Ids and their Input_IdPs. Once the updated Input_IdPs from all the neurons have been accumulated, they are passed through the update_genotype/2 function to produce updated neurons, and write them to database.
+
+	update_genotype(IdsNPIds,[{N_Id,SI_PIdPs,MI_PIdPs}|WeightPs])->
+		N = genotype:dirty_read({neuron,N_Id}),
+		Updated_SI_IdPs = convert_PIdPs2IdPs(IdsNPIds,SI_PIdPs,[]),
+		Updated_MI_IdPs = convert_PIdPs2IdPs(IdsNPIds,MI_PIdPs,[]),
+		U_N = N#neuron{input_idps = Updated_SI_IdPs,input_idps_modulation=Updated_MI_IdPs},
+		genotype:write(U_N),
+		%io:format("N:~p~n U_N:~p~n Genotype:~p~n U_Genotype:~p~n",[N,U_N,Genotype,U_Genotype]),
+		update_genotype(IdsNPIds,WeightPs);
+	update_genotype(_IdsNPIds,[])->
+		ok.
+%For every {N_Id,PIdPs} tuple the update_genotype/3 function extracts the neuron with the id: N_Id, updates the neuron's input_IdPs, and writes the updated neuron to database.
+
+		convert_PIdPs2IdPs(IdsNPIds,[{PId,WeightsP}|Input_PIdPs],Acc)->
+			convert_PIdPs2IdPs(IdsNPIds,Input_PIdPs,[{ets:lookup_element(IdsNPIds,PId,2),WeightsP}|Acc]);
+		convert_PIdPs2IdPs(_IdsNPIds,[],Acc)->
+			lists:reverse(Acc).
+%The convert_PIdPs2IdPs/3 performs the conversion from PIds to Ids of every {PId,Weights} tuple in the Input_PIdPs list. The updated Input_IdPs are then returned to the caller.
 	
+terminate_phenotype(Cx_PId,SPIds,NPIds,APIds,ScapePIds,CPP_PIds,CEP_PIds,Substrate_PId)->
+	%io:format("Terminating the phenotype:~nCx_PId:~p~nSPIds:~p~nNPIds:~p~nAPIds:~p~nScapePids:~p~n",[Cx_PId,SPIds,NPIds,APIds,ScapePIds]),
+	[PId ! {self(),terminate} || PId <- SPIds],
+	[PId ! {self(),terminate} || PId <- APIds],
+	[PId ! {self(),terminate} || PId <- NPIds],
+	[PId ! {self(),terminate} || PId <- ScapePIds],
+	case Substrate_PId == undefined of
+		true ->
+			ok;
+		false ->
+			[PId ! {self(),terminate} || PId <- CPP_PIds],
+			[PId ! {self(),terminate} || PId <- CEP_PIds],
+			Substrate_PId ! {self(),terminate}
+	end,
+	Cx_PId ! {self(),terminate}.
+%The terminate_phenotype/5 function termiantes sensors, actuators, neurons, all private scapes, and the cortex which composes the NN based system.
+
 gather_acks(0)->
 	done;	
 gather_acks(PId_Index)->
 	receive
 		{_From,ready}->
-			%io:format("From:~p~n",[_From]),
 			gather_acks(PId_Index-1)
 		after 100000 ->
 			io:format("******** Not all acks received:~p~n",[PId_Index])
 	end.
-	
-	count_weights({_,_},Acc)->
-		count_weights([],1);
-	count_weights([{_Id,WPC}|DWP],Acc)->
-		count_weights(DWP,length(WPC)+Acc);
-	count_weights([],Acc)->
-		Acc.
-		
-get_MaxTrials()->
-	{reply, Max_Trials} = gen_server:call(monitor,{request,max_trials}),
-	Max_Trials.
-	
-extract_CurGenNIds([N_Id|N_Ids],Generation,Acc)->
-	[N] = mnesia:dirty_read({neuron,N_Id}),
-	NeuronGen = N#neuron.generation,
-	case NeuronGen== Generation of
-		true ->
-			extract_CurGenNIds(N_Ids,Generation,[N_Id|Acc]);
-		false ->
-			extract_CurGenNIds(N_Ids,Generation,Acc)
-	end;
-extract_CurGenNIds([],_Generation,Acc)->
-	Acc.
-
-extract_CurGenNIds([N_Id|N_Ids],Generation,AgeLimit,Acc)->
-	[N] = mnesia:dirty_read({neuron,N_Id}),
-	NeuronGen = N#neuron.generation,
-	case NeuronGen >= (Generation-AgeLimit) of
-		true ->
-			extract_CurGenNIds(N_Ids,Generation,AgeLimit,[N_Id|Acc]);
-		false ->
-			extract_CurGenNIds(N_Ids,Generation,AgeLimit,Acc)
-	end;
-extract_CurGenNIds([],_Generation,_AgeLimit,Acc)->
-	Acc.
-	
-extract_NWeightCount([N_Id|CurGenN_Ids],Acc)->
-	[N] = mnesia:dirty_read({neuron,N_Id}),
-	DWP = N#neuron.dwp,
-	TotWeights = count_weights(DWP,0),
-	extract_NWeightCount(CurGenN_Ids,TotWeights+Acc);
-extract_NWeightCount([],Acc)->
-	Acc.
-	
-extract_CurGenNIdPs([N_Id|N_Ids],Generation,TMR,AP,Acc)->
-	[N] = mnesia:dirty_read({neuron,N_Id}),
-	NeuronGen = N#neuron.generation,
-	case NeuronGen == Generation of
-		true ->
-			Age = Generation-NeuronGen,
-			Spread = TMR*math:pi()*math:pow(AP,Age),%math:pi()*math:pow(0.5,Age),
-			extract_CurGenNIdPs(N_Ids,Generation,TMR,AP,[{N_Id,Spread}|Acc]);
-		false ->
-			extract_CurGenNIdPs(N_Ids,Generation,TMR,AP,Acc)
-	end;
-extract_CurGenNIdPs([],_Generation,_TMR,_AP,Acc)->
-	Acc.
-
-extract_CurGenNIdPs([N_Id|N_Ids],Generation,AgeLimit,TMR,AP,Acc)->
-	[N] = mnesia:dirty_read({neuron,N_Id}),
-	NeuronGen = N#neuron.generation,
-	case NeuronGen >= (Generation-AgeLimit) of
-		true ->
-			Age = Generation-NeuronGen,
-			Spread = TMR*math:pi()*math:pow(AP,Age),%math:pi()*math:pow(0.5,Age),
-			extract_CurGenNIdPs(N_Ids,Generation,AgeLimit,TMR,AP,[{N_Id,Spread}|Acc]);
-		false ->
-			extract_CurGenNIdPs(N_Ids,Generation,AgeLimit,TMR,AP,Acc)
-	end;
-extract_CurGenNIdPs([],_Generation,_AgeLimit,_TMR,_AP,Acc)->
-	Acc.
-
-g(Text)->gather_urls(Text,[]).
-gather_urls("arc" ++ T, L) ->
-	{Url, T1} = collect_url_body(T, lists:reverse("arc" )),
-	gather_urls(T1, [Url|L]);
-gather_urls([_|T], L) ->
-	gather_urls(T, L);
-gather_urls([], L) ->
-	L.
-	
-	collect_url_body("." ++ T, L) -> 
-		{lists:reverse(L, "." ), T};
-	collect_url_body([H|T], L)-> 
-		collect_url_body(T, [H|L]);
-	collect_url_body([], _)-> 
-		{[],[]}.
+%gather_acks/1 ensures that the X number of {From,ready} messages are sent to it, before it returns with done. X is set by the caller of the function.

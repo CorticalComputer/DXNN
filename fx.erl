@@ -1,9 +1,13 @@
-%% This source code and work is provided and developed by DXNN Research Group WWW.DXNNResearch.COM
-%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% This source code and work is provided and developed by Gene I. Sher & DXNN Research Group WWW.DXNNResearch.COM
+%
 %Copyright (C) 2009 by Gene Sher, DXNN Research Group, CorticalComputer@gmail.com
 %All rights reserved.
 %
 %This code is licensed under the version 3 of the GNU General Public License. Please see the LICENSE file that accompanies this project for the terms of use.
+%
+%The original release of this source code and the DXNN MK2 system was introduced and explained (architecture and the logic behind it) in my book: Handbook of Neuroevolution Through Erlang. Springer 2012, print ISBN: 978-1-4614-4462-6 ebook ISBN: 978-1-4614-4463-6. 
+%%%%%%%%%%%%%%%%%%%% Deus Ex Neural Network :: DXNN %%%%%%%%%%%%%%%%%%%%
 
 -module(fx).
 -compile(export_all).
@@ -278,18 +282,18 @@ tt(PId,TradeSignal)->
 	end.
 
 
-sim(ExoSelf)->
+sim(ExoSelf)->io:format("Started~n"),
 	put(prev_PC,0),
 	S = #state{},
 	A = #account{},
-	spawn(node(),?MODULE,sim,[ExoSelf,S,A]).
+	sim(ExoSelf,S,A).
 %-record(state,{table_name,feature,index_start,index_end,index,price_list=[]}).
 %-record(account,{leverage=50,lot=10000,spread=0.000150,margin=0,balance=300,net_asset_value=300,realized_PL=0,unrealized_PL=0,order}).
 %-record(order,{pair,position,entry,current,units,change,percentage_change,profit}).
 sim(ExoSelf,S,A)->
 	receive
 		{From,sense,TableName,Feature,Parameters,Start,Finish}->%Parameters:{VL,SignalEncoding}
-		%io:format("******************************STARTING TO PROCESS SENSE SIGNAL******************************~n"),
+			%io:format("******************************STARTING TO PROCESS SENSE SIGNAL******************************~n"),
 			{Result,U_S}=case S#state.table_name of
 				undefined ->
 					sense(init_state(S,TableName,Feature,Start,Finish),Parameters);
@@ -297,8 +301,8 @@ sim(ExoSelf,S,A)->
 					sense(S,Parameters)
 			end,
 			From ! {self(),Result},
-%			io:format("State:~p~n",[U_S]),
-%			io:format("******************************FINISHED PROCESSING SENSE SIGNAL******************************~n"),
+			%io:format("State:~p~n",[U_S]),
+			%io:format("******************************FINISHED PROCESSING SENSE SIGNAL******************************~n"),
 			case ?SENSE_CA_TAG of
 				true ->
 					timer:sleep(10000),
@@ -353,27 +357,27 @@ sim(ExoSelf,S,A)->
 			end,
 			case (U_A#account.balance + U_A#account.unrealized_PL) =< 100 of
 				true ->
-					Result = {1,0},
-					From ! {self(),Result},
+					%Result = {1,0},
+					From ! {self(),0,1},
 					io:format("Lost all money~n"),
-%					io:format("******************************FINISHED PROCESSING TRADE SIGNAL******************************~n"),
+					%io:format("******************************FINISHED PROCESSING TRADE SIGNAL******************************~n"),
 					put(prev_PC,0),
 					fx:sim(ExoSelf,#state{},#account{});
 				false ->
 					case update_state(S) of
 						sim_over ->
 							Total_Profit = A#account.balance + A#account.unrealized_PL,
-							Result = {1,Total_Profit},
-							From ! {self(),Result},
+							%Result = {1,Total_Profit},
+							From ! {self(),Total_Profit,1},
 							%io:format("Sim Over:~p~n",[Total_Profit]),
-%							io:format("******************************FINISHED PROCESSING TRADE SIGNAL******************************~n"),
+							%io:format("******************************FINISHED PROCESSING TRADE SIGNAL******************************~n"),
 							put(prev_PC,0),
 							fx:sim(ExoSelf,#state{},#account{});
 						U_S ->
-							Result = {0,0},
-							From ! {self(),Result},
+							%Result = {0,0},
+							From ! {self(),0,0},
 							U_A2 = update_account(U_S,U_A),
-%							io:format("******************************FINISHED PROCESSING TRADE SIGNAL******************************~n"),
+							%io:format("******************************FINISHED PROCESSING TRADE SIGNAL******************************~n"),
 							fx:sim(ExoSelf,U_S,U_A2)
 					end
 			end;
@@ -576,17 +580,45 @@ plane_encoded(HRes,VRes,S)->
 	%H_StartPos = HMin + HStep/2;
 %	io:format("PriceList:~p~n LVMax1:~p~n LVMin1:~p~n LVMax:~p~n LVMin:~p~n VStep:~p~n V_StartPos:~p~n",[U_PriceList,LVMax1,LVMin1,LVMax,LVMin,VStep,V_StartPos]),
 	U_S=S#state{price_list=U_PriceListPs},
-	{geometry:l2fx(HRes*VRes,{U_PList,U_PList},V_StartPos,VStep,[]),U_S}.
+	{l2fx(HRes*VRes,{U_PList,U_PList},V_StartPos,VStep,[]),U_S}.
 	
 	fx_GetPriceList(_Table,EndKey,0,Acc)->
 %		io:format("EndKey:~p~n",[EndKey]),
 		Acc;
-	fx_GetPriceList(_Table,'$end_of_table',_Index,Acc)->
+	fx_GetPriceList(_Table,'end_of_table',_Index,Acc)->
 		exit("fx_GetPriceList, reached end_of_table");
 	fx_GetPriceList(Table,Key,Index,Acc) ->
 		R = fx:lookup(Table,Key),
 		%io:format("R:~p~n",[R]),
 		fx_GetPriceList(Table,fx:next(Table,Key),Index-1,[{R#technical.open,R#technical.close,R#technical.high,R#technical.low}|Acc]).
+		
+	l2fx(Index,{[{Open,Close,High,Low}|VList],MemList},VPos,VStep,Acc)->
+%		io:format("Index:~p {Open,Close,High,Low}:~p VPos:~p VStep:~p~n",[Index,{Open,Close,High,Low},VPos,VStep]),
+		{BHigh,BLow} = case Open > Close of
+			true ->
+				{Open,Close};
+			false ->
+				{Close,Open}
+		end,
+		O = case (VPos+VStep/2 > BLow) and (VPos-VStep/2 =< BHigh) of %(VPos+VStep)/2 > Open	(Close =< VPos+VStep/2) and (Close > VPos-VStep/2) of
+			true ->
+				1;
+			false ->
+				case (VPos+VStep/2 > Low) and (VPos-VStep/2 =< High) of
+					true ->
+						0;
+					false ->
+						-1
+				end
+		end,
+		%io:format("Val:~p VPos:~p VStep:~p O:~p~n",[O,VPos,VStep,O]),
+		l2fx(Index-1,{VList,MemList},VPos,VStep,[O|Acc]);
+	l2fx(0,{[],_MemList},_VPos,_VStep,Acc)->
+		%io:format("~p~n",[Acc]),
+		Acc;
+	l2fx(Index,{[],MemList},VPos,VStep,Acc)->
+		%io:format("Acc:~p~n",[Acc]),
+		l2fx(Index,{MemList,MemList},VPos+VStep,VStep,Acc).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% FX ACTUATORS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -726,7 +758,7 @@ next(TableName,Key)->
 prev(TableName,Key)->
 	ets:prev(TableName,Key).
 
-prev(TableName,'$end_of_table',prev,_Index)->
+prev(TableName,'end_of_table',prev,_Index)->
 	ets:first(TableName);
 prev(_TableName,Key,prev,0)->
 	Key;

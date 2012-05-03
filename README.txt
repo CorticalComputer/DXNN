@@ -1,4 +1,4 @@
-DXNN v1.0 Erlang,
+DXNN MK2 Erlang,
 By Gene Sher
 http://DXNN.org
 http://DXNNResearch.com
@@ -55,5 +55,3 @@ From inside Erlang.
 4. At this point you can summon NN based agents or populations of agents, construct Sensors and Actuators and provide them to the NNs... This section will be expanded in future additions.
 
 To set the population and agents to the preferred sensors and actuators, modify the INIT_CONSTRAINTS (in population_monitor module), and use the particular morphology you want (check the morphology module, different morphologies are for different problems), and then execute population_monitor:start(), which will create the population of size decided by you of agents using the specified morphology and thus the sensors and actuators. If you want the agents to discover and explore the available sensors and actuators (perform feature selection in a sense) then modify modular_constructor, ensuring that you use the get_InitSensors() and get_InitActuators() function, instead of the get_Sensors() and get_Actuators() function used within the module. The get_Init.. starts the population off with the NN based agents using just a single sensor and actuator, exploring other available sensors and actuators within the morphology as they evolve. You can add new sensors and actuators by specifying those sensors and actuators in the morphology module, and then creating those functions in the sensors and actuators modules. New mutation operators, activation functions... all can be added within the records.hrl, as long as those functions are realized/implemented in their respective modules so that they can be executed when called upon.
-
-DXNN V2.0 uses similar algorithms (about 60% the same), but has a different architecture, more scalable, more versatile, simpler, better, and is fully documented. I'll release it as soon as I can.

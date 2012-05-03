@@ -1,185 +1,221 @@
-%% This source code and work is provided and developed by DXNN Research Group WWW.DXNNResearch.COM
-%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% This source code and work is provided and developed by Gene I. Sher & DXNN Research Group WWW.DXNNResearch.COM
+%
 %Copyright (C) 2009 by Gene Sher, DXNN Research Group, CorticalComputer@gmail.com
 %All rights reserved.
 %
 %This code is licensed under the version 3 of the GNU General Public License. Please see the LICENSE file that accompanies this project for the terms of use.
+%
+%The original release of this source code and the DXNN MK2 system was introduced and explained (architecture and the logic behind it) in my book: Handbook of Neuroevolution Through Erlang. Springer 2012, print ISBN: 978-1-4614-4462-6 ebook ISBN: 978-1-4614-4463-6. 
+%%%%%%%%%%%%%%%%%%%% Deus Ex Neural Network :: DXNN %%%%%%%%%%%%%%%%%%%%
 
--record(af,{name,parameters,neural_constraints}).
--record(lt,{name,parameters,neural_constraints}).
--record(schema,{sensors,actuators}).
--record(stat,{morphology,specie_id,avg_subcores,subcores_std,avg_neurons,neurons_std,avg_fitness,fitness_std,max_fitness,min_fitness,avg_diversity,gentest_fitness,evaluations,time_stamp}).
--record(fingerprint,{cf,ct,constraint,history,tot_subcores,tot_substrates,tot_neurons,subcore_pattern,neuro_patterns}).
--record(trace,{stats=[],tot_evaluations=0,step_size=500,next_step=500}).
--record(stats,{morphology,avg_subcores=[],avg_neurons=[],avg_fitness=[],max_fitness=[],min_fitness=[],avg_diversity=[],evaluations=[],tot_evaluations=0,step_size=500,next_step=500}).
--record(population,{id,type,trace=#trace{},specie_ids=[],topspecie_ids,polis_id,evo_strat}).
--record(specie,{id,morphology,constraint,fingerprint,trace=#trace{},cur_stat,avg_fitness,stagnation_factor,dx_ids=[],dead_pool=[],topdx_ids=[],championdx_ids=[],population_id}).
--record(dx,{id,cx_id,n_ids,specie_id,constraint,morphology,generation,fitness,profile,summary,evo_hist,mode,evo_strat}).
--record(cortex,{id,sensors,actuators,cf,ct,type,plasticity,pattern,cids,su_id,link_form,substrate_link_form,dimensions,densities,generation}). %%%id = {{LayerIndex,NumId},subcore}
--record(subcore,{id,i,o,cf,ct,type,plasticity,pattern,cids,su_id,link_form,dimensions,densities,generation}).
--record(neuron,{id,ivl,i,ovl,o,lt,ro,type,dwp,su_id,generation}). %%%id = {{LayerIndex,NumId},neuron}
-%-record(citizen,{id,dx_id,fitness,fitness_profile,specie_id}).
--record(summary,{type,tot_neurons,tot_n_ils,tot_n_ols,tot_n_ros,af_distribution,fitness}).
--record(sensor,{name,id,format,tot_vl,parameters,objects=[],vis=[]}).
--record(actuator,{name,id,format,tot_vl,parameters,objects=[],vis=[]}).
--record(sCT,{name,id,format,tot_vl,parameters}).
--record(sCF,{name,id,format,tot_vl,parameters}).
--record(tag,{name,id,format,tot_vl,parameters}).
-
--record(polis,{id,scape_ids=[],population_ids=[],specie_ids=[],dx_ids=[],parameters=[]}).
--record(scape,{id,type,physics,metabolics,sector2avatars,avatars=[],plants=[],walls=[],pillars=[],laws=[],anomolies=[],artifacts=[],objects=[],elements=[],atoms=[],scheduler=0}).
--record(sector,{id,type,scape_pid,sector_size,physics,metabolics,sector2avatars,avatars=[],plants=[],walls=[],pillars=[],laws=[],anomolies=[],artifacts=[],objects=[],elements=[],atoms=[]}).
--record(avatar,{id,sector,morphology,type,specie,energy=0,health=0,food=0,sound,gestalt,spear,age=0,kills=0,loc,direction,r,mass,objects,vis=[],state,stats,actuators,sensors}).
-
--record(object,{id,sector,type,color,loc,pivot,elements=[],parameters=[]}).
--record(circle,{id,sector,color,loc,pivot,r}).
--record(square,{id,sector,color,loc,pivot,r}).
--record(line,{id,sector,color,loc,pivot,coords}).
--record(e,{id,sector,v_id,type,loc,pivot}).%pivot
--record(a,{id,sector,v_id,type,loc,pivot,mass,properties}).
+-record(sensor,{id,name,type,cx_id,scape,vl,fanout_ids=[],generation,format,parameters,gt_parameters,phys_rep,vis_rep,pre_f,post_f}). 
+-record(actuator,{id,name,type,cx_id,scape,vl,fanin_ids=[],generation,format,parameters,gt_parameters,phys_rep,vis_rep,pre_f,post_f}).
+-record(neuron, {id, generation, cx_id, af, pf, aggr_f, input_idps=[], input_idps_modulation=[], output_ids=[], ro_ids=[]}).
+-record(cortex, {id, agent_id, neuron_ids=[], sensor_ids=[], actuator_ids=[]}).
+-record(substrate, {id, agent_id, densities, linkform, plasticity=none, cpp_ids=[],cep_ids=[]}). 
+-record(agent,{id, encoding_type, generation, population_id, specie_id, cx_id, fingerprint, constraint, evo_hist=[], fitness=0, innovation_factor=0, pattern=[], tuning_selection_f, annealing_parameter, tuning_duration_f, perturbation_range, mutation_operators,tot_topological_mutations_f,heredity_type,substrate_id}).
+-record(specie,{id, population_id, fingerprint, constraint, agent_ids=[], dead_pool=[], champion_ids=[], fitness, innovation_factor={0,0},stats=[]}).
+-record(trace,{stats=[],tot_evaluations=0,step_size=500}).
+-record(population,{id, polis_id, specie_ids=[], morphologies=[], innovation_factor, evo_alg_f, fitness_postprocessor_f, selection_f, trace=#trace{}}).
+-record(stat,{morphology,specie_id,avg_neurons,std_neurons,avg_fitness,std_fitness,max_fitness,min_fitness,gentest_fitness,avg_diversity,evaluations,time_stamp}).
+-record(topology_summary,{type,tot_neurons,tot_n_ils,tot_n_ols,tot_n_ros,af_distribution}).
+-record(avatar,{id,sector,morphology,energy=0,health=0,food=0, age=0, kills=0, loc, direction, r, mass, objects=[], state,actuators,sensors}).
+-record(object,{id,sector,type,color,loc,pivot,parameters=[]}).
 
 -record(constraint,{
-	morphology = pole2_balancing3, %[pole2_balancing3|flatlander...]
-	actuators = [],
-	sensors = [],
-	architecture = modular, %[modular|monolithic]
-	cx_types, %[hypercube,neural]
-	cx_plasticity, %[iterative,none]
-	cx_linkform = recursive, %[recursive,feedforward,self_recursive]
-	core_types = [hypercube,neural], %[hypercube,neural]
-	core_plasticity = [none], %[iterative,none]
-	core_linkform,
-	sc_types = [neural],
-	sc_neural_plasticity = [none], %[none,modulated]
-	sc_hypercube_plasticity  = [none], %[none,abc,iterative]
-	sc_neural_linkform = recursive, %[recursive,feedforward,self_recursive,jordan_recursive,sj_recursive]
-	sc_hypercube_linkform = [feedforward],
-	neural_types = [standard], %[standard,bst]
-	neural_pfs = [none],%[none,modulated]
-	neural_afs = [tanh,gaussian,sin,absolute,sgn,linear,log,sqrt] %[tanh,gaussian,sin,linear,absolute,sgn,log,sqrt]
+	morphology=xor_mimic, %xor_mimic 
+	connection_architecture = recurrent, %recurrent|feedforward 
+	neural_afs=[
+		tanh,
+		cos,
+		gaussian,
+		absolute
+	], %[tanh,cos,gaussian,absolute,sin,sqrt,sigmoid],
+	neural_pfns=[none], %[none,hebbian_w,hebbian,ojas_w,ojas,self_modulationV1,self_modulationV2,self_modulationV2,self_modulationV3,self_modulationV4,self_modulationV5,self_modulationV6,neuromodulation]
+	substrate_plasticities=[none],
+	substrate_linkforms = [l2l_feedforward],%[l2l_feedfrward,jordan_recurrent,fully_connected]
+	neural_aggr_fs=[dot_product], %[dot_product, mult_product, diff]
+	tuning_selection_fs=[dynamic_random], %[all,all_random, recent,recent_random, lastgen,lastgen_random]
+	tuning_duration_f={const,10}, %[{const,20},{nsize_proportional,0.5},{nweight_proportional,0.5}...]
+	annealing_parameters=[1], %[1,0.9]
+	perturbation_ranges=[1], %[0.5,1,2,3...]
+	agent_encoding_types= [neural], %[neural,substrate]
+	heredity_types = [darwinian], %[darwinian,lamarckian]
+	mutation_operators= [
+		%{mutate_weights,1},
+		{add_bias,1}, 
+		%{remove_bias,1}, 
+		{mutate_af,1}, 
+		{add_outlink,1}, 
+		{add_inlink,1}, 
+		{add_neuron,1}, 
+		{outsplice,1}, 
+		{add_sensor,1}, 
+		{add_actuator,1},
+		{mutate_plasticity_parameters,1},
+		{add_cpp,1},
+		{add_cep,1}
+	], %[{mutate_weights,1}, {add_bias,1}, {remove_bias,1}, {mutate_af,1}, {add_outlink,1}, {remove_outLink,1}, {add_inlink,1}, {remove_inlink,1}, {add_sensorlink,1}, {add_actuatorlink,1}, {add_neuron,1}, {remove_neuron,1}, {outsplice,1}, {insplice,1}, {add_sensor,1}, {remove_sensor,1}, {add_actuator,1}, {remove_actuator,1},{mutate_plasticity_parameters,1}]
+	tot_topological_mutations_fs = [{ncount_exponential,0.5}], %[{ncount_exponential,0.5},{ncount_linear,1}]
+	population_evo_alg_f=generational, %[generational, steady_state]
+	population_fitness_postprocessor_f=size_proportional, %[none,nsize_proportional]
+	population_selection_f=competition %[competition,top3]
+}).
+-record(experiment,{
+	id,
+	backup_flag = true,
+	pm_parameters,
+	init_constraints,
+	progress_flag=in_progress,
+	trace_acc=[],
+	run_index=1,
+	tot_runs=10,
+	notes,
+	started={date(),time()},
+	completed,
+	interruptions=[]
 }).
 
--record(agent_evo_strat,{
-	functional = true,
-	strategies_mutation_prob = 0,%Probability of mutating an evolutionary strategies parameter, increments and decrements based on how far from the edge: 0-100%.
-	mutation_operators = modular_mutator:mos(),
-	tuning_mutation_range = math:pi(),%From -2Pi to Pi, starts of with a range of -Pi to Pi.
-	tuning_annealing_flag = false,%true|false
-	annealing_parameter = 0.5,%Standard: math:pi()*math:pow(0.5,Age) tuning_mutation_range*math:pow(anealing_parameter,Age), ranges from 0 to 1, where 1 is no anealing, and 0 is stop evolving.
-	topological_mutation_prob = 1,%Standard: Range from 1 to 1/sqrt(Tot_Neurons), Multiplier range: 1 to sqrt(Tot_Neurons).
-	topological_annealing_flag = false,%true|false
-	neuron_perturbation_prob = 1,%Standard: 1/sqrt(TotNeurons) Probability of choosing a neuron for perturbation, multiplier: 1 to sqrt(TotNeurons)
-	weight_perturbation_prob = 1,%Standard: 1/sqrt(TotWeights) Probability of choosing a weight for perturbation, multiplier: 1 to sqrt(TotWeights)
-	active_neuron_selection_type = dynamic_random,%What type to use to select active neurons: %[dynamic|active|recent|current|all|dynamic_random|active_random|recent_random|current_random|all_random]
-	active_neuron_selection_parameter = undefined %Augment the parameter of selection, dependent on type
+-record(pmp,{
+	op_mode=gt,
+	population_id=test,
+	survival_percentage=0.5,
+	specie_size_limit=10,
+	init_specie_size=10,
+	polis_id = mathema,
+	generation_limit = 100,
+	evaluations_limit = 100000,
+	fitness_goal = inf,
+	benchmarker_pid
 }).
+%%% sensor:
+%id= {{-1::LayerCoordinate, float()::Unique_Id()}, sensor}
+%name= atom()
+%cx_id= cortex.id
+%scape= {private|public, atom()::ScapeName}
+%vl= int()
+%fanout_ids= [neuron.id...]
+%generation=int()
+%format= {no_geo|geo,[int()::Resolution...]}
+%parameters= [any()...]
+%phys_rep= [any()...]
+%vis_rep= [any()...]
+%pre_f= atom()::FunctionName
+%post_f= atom()::FunctionName
 
--record(specie_evo_strat,{
-	strategies_mutation_prob = 0,%Probability of mutating an evolutionary strategies parameter: 0-100%
-	evolution_type = memetic,%memetic|genetic
-	selection_type = competition,%competition|top3
-	selection_threshold = 0.5,%Top 10% - 90% survival.
-	diversity_importance = 0,%Weight of the fingerprint difference, importance for genetic diversity to be part of the fitness function.
-	revenent_prob = 0.1 %probability that a deadpool NN will reavaluate, 10% - 90%
-}).
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% LEGEND %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%======================================POLIS======================================
-%scape_id:[Id1...Idn]
-%population_ids: [Id1...Idn]
-%specie_ids:[Id1...Idn]
-%dx_ids:[Id1...Idn]
-%parameters:???
+%%%actuator:
+%id= {{1::LayerCoordinate,generate_UniqueId()},actuator}
+%name= atom()
+%cx_id= cortex.id
+%scape= {private|public, atom()::ScapeName}
+%vl= int()
+%fanout_ids= [neuron.id...]
+%generation=int()
+%format= {no_geo|geo,[int()::Resolution...]}
+%parameters= [any()...]
+%phys_rep= [any()...]
+%vis_rep= [any()...]
+%pre_f= atom()::FunctionName
+%post_f= atom()::FunctionName
 
-%======================================SCAPE======================================
-%sector_ids:[Id1...Id2]
-%type:[Dimensions,Sim_Level]
-%championdx_ids: [{OriginalDX_Id1,NewDX_Id1},{OrignalDX_Id2,NewDX_Id2}...]
+%%%neuron:
+%id= {{float()::LayerCoordinate, float()::Unique_Id},neuron}
+%generation= int()
+%cx_id= cortex.id
+%af= atom()::FunctionName
+%pf= {atom()::FunctionName,any()::ParameterList}
+%aggr_f= atom()::FunctionName
+%input_idps= [{Input_Id,WeightsP},{neuron.id|sensor.id,[{float()::Weight,any()::ParameterList}...]}...]
+%output_ids= [neuron.id|actuator.id...]
+%ro_ids= [neuron.id...]
 
-%======================================SECTOR======================================
-%scape_id: Id
-%type:[Dimensions,Sim_Level]
-%atom_ids:[Id1...Idn]
-%element_ids:[Id1...Idn]
-%object_ids:[Id1...Idn]
-%avatar_ids:[Id1...Idn]
+%%%cortex:
+%id= {{origin, float()::Unique_Id()},cortex}
+%agent_id= agent.id
+%neuron_ids= [neuron.id...]
+%sensor_ids= [sensor.id...]
+%actuator_ids= [actuator.id...]
 
-%======================================POPULATION======================================
-%id: UniqueId
-%Type:test,dx,cyber_warfare,forex...
-%specie_ids: [{UniqueId1,Morphology}...{UniqueIdn,Morphology}]
-%top_species: [{Fitness1,Id1},{Fitness2,Id2}...{Fitnessn,Idn}]
-%polis_id: Id 
-%scpecie_trace: avg_fitness,avg_diversity...
-%avg_diversity: [[{Specie_Id1,Diversity1}...{Specie_Idn,Diversity2}]....]
+%%%agent:
+%id= {float()::Unique_Id(),agent}
+%encoding_type= atom()::neural|substrate
+%generation= int()
+%population_id= population.id
+%specie_id= specie.id
+%cx_id= cortex.id
+%fingerprint= fingerprint()
+%constraint= constraint()
+%evo_hist= [OperatorAppllied...]
+%	{atom()::MO_Name, ElementA.id, ElementB.id, ElementC.id}
+%	{atom()::MO_Name, ElementA.id, ElementB.id}
+%	{atom()::MO_Name, ElementA.id}
+%fitness= float()
+%innovation_factor= int()
+%pattern= [{float()::LayerCoordinate, N_Ids}...]
+%tuning_selection_f= atom()::FunctionName
+%annealing_parameter= float()
+%tuning_duration_f= {atom()::FunctionName,any()::Parameter}
+%perturbation_range= float()
+%mutation_operators= [{atom()::FunctionName,float()}...]
+%tot_topological_mutations_f= {atom()::FunctionName,float()}
 
-%======================================SPECIE======================================
-%id: UniqueId
-%dx_ids: [Id1,Id2...Idn]
-%topdx_ids: [Id1,Id2...Idn]
-%championdx_ids: [Id1,Id2...Idn]
-%population_id: Id
-%last_improved: Number of generations ago an improvement occured. Over 3 is considered stagnant and the population if it is not in top 3, dies out.
-%======================================DX======================================
-%id = UniqueId
-%citizenship_id = citizen_id
-%fitness = Float
-%fitness_profile = List
-%specie_id = Id of the specie the DX belongs to.
-%summary = [tot_substrates,tot_subcores,tot_neurons,tot_sclinks,tot_nlinks,tot_sigmoids,tot_sines,tot_guassians,tot_linears,tot_hebbians]
-%evo_hist: Evolutionary History in a list: [{Generation,TypeOfMutagen,Applied_On,From,To}...]
-%mode: [online,offline]. Active when summoned, inactive when not summoned.
+%%%specie:
+%id= atom()|{float()::Unique_Id,specie}
+%population_id= population.id
+%fingerprint= fingerprint()
+%constraint= constraint()
+%agent_ids= [agent.id...]
+%dead_pool= [agent.id...]
+%champion_ids= [agent.id..]
+%fitness= float()
+%innovation_factor= int()
 
-%======================================CORTEX======================================
-%id: {{0,0},core,UniqueId}
-%type:[neural|hypercube]
-%link_form:[feedforward|recursive]
-%Sensory_Pool: [Sensor1...SensorN] Sensor: {sensor,Name,Id,TotVL,Parameters}
-%Actuator_Pool:[Actuator1...ActuatorN] Actuator: {actuator,Name,Id,TotVL,Parameters}
-%dimensions:N, densities:[D1,D2,D3...DN]
-%CF:
-%	neural:		[{Actuator1,[N_Id1...N_Idn]},{Actuator2,[N_Id1...N_Idn]}...]
-%	hypercube:	[{sCF,[N_Id1...N_Idn]}...]
-%CT:
-%	neural:		[{Sensor1,[{N_Id1,FilterTag1},{N_Id2,FilterTag2}...]}...] FilterTag:{single,Index} | {block,VL}
-%	hypercube:	[{sCT,[{N_Id1,FilterTag1},{N_Id2,FilterTag2}...]}...] FilterTag:{single,Index} | {block,VL}
+%%%population:
+%id= atom()|{float()::Unique_Id,population}
+%polis_id= polis.id
+%specie_ids= [specie.id...]
+%morphologies= [atom()::Morphology_Name...]
+%innovation_factor= int()
+%evo_alg_f= atom()::FunctionName
+%fitness_postprocessor_f= atom()::FunctionName
+%selection_f= atom()::FunctionName
 
-%neural: [{NeuronId1,VL,Tag}] Tag: [{I_Id,Index}...]
-%neuromodulator:[yes|no]
-%pattern:[{Layer_Id1,[Id1...Idn]}...{Layer_Idn,[Id1...Idn]}]
-%Substrate encoding: X density = n, Y density = k, Z density = p, T density = l
-%D1 = [{X1,[W1,W2...Wn]}...{Xm,[W1,W2...Wn]}]
-%D2 = [{Y1,D1}...{Yk,D1}]
-%D3 = [{Z1,D2}...{Zp,D2}]
-%D4 = [{T1,D3}...{Tl,D3}]
-%[{D3,[{D2,[{D1,{o,[W1,W2...Wn]}},{D1,{o,[W1,W2...Wn]}}]},{D2,[{D1,{o,[W1,W2...Wn]}},{D1,{o,[W1,W2...Wn]}}]}]}
-% {D3,[{D2,[{D1,{o,[W1,W2...Wn]}},{D1,{o,[W1,W2...Wn]}}]},{D2,[{D1,{o,[W1,W2...Wn]}},{D1,{o,[W1,W2...Wn]}}]}]}]
+%%%fingerprint:
+%generalized_sensors= [sensor()::init...]
+%	sensor.id = undefined
+%	sensor.cx_id = undefined
+%	sensor.fanout_ids = []
+%generlized_actuators= [actuator()::init...]
+%	actuator.id = undefined
+%	actuator.cx_id = undefined
+%	actuator.fanin_ids = []
+%generalized_pattern= [{float()::LayerCoordinate,int()::TotNeurons}...]
+%generalized_evohist= [GeneralizedOperatorApplied...]
+%	{atom()::MO_Name,{float()::ElementA_LayerCoordinate,atom()::ElementA_Type},{ElementB_LayerCoordinate,ElementB_Type},{ElementC_LayerCoordinate,ElementC_Type}},
+%	{atom()::MO_Name,{float()::ElementA_LayerCoordinate,atom()::ElementA_Type},{ElementB_LayerCoordinate,ElementB_Type}},
+%	{atom()::MO_Name,{float()::ElementA_LayerCoordinate,atom()::ElementA_Type}},
+%	{atom()::MO_Name},
 
-%[{[D3,D2,D1],[{o,[W1,W2,W3]},{o,W1,W2,W3}]},
-% {[D3,D2,D1],[{o,[W1,W2,W3]},{o,W1,W2,W3}]}]
-%SubCore/Core|Cortex inputs/output formats:
-%	{From_PId,forward,[Val1,Val2...Valn]}
-%Sensor/Actuator: 
-%Formats:
-%	undefined, simple vector with no geometric information
-%	no_geo
-%	{symetric,[R1,R2...Rk],[Val1...Valn]} where n == R1*R2*...Dk and k = dimension
-%	{asymetric,[[R1..Rp],[R1..Rt]],[Val1...Valn]} where lists:sum(lists:flatten([[R1...Rp],[R1..Rt]])) == n, and depth = Dimension.
-%	coorded, every val comes with its own coord tuple: {Coord,Val}. The coord is a list, thus specifying the dimensionality.
-%Combining:
-%	Determine highest dimension input
-%	Every input gets its own dimension
-%	If input has lower dimension than SHyperCube -1, then it is put together with
-%	Perhaps it is better to... give each input its own hypercube, merging 2d or 1d outputs in a unification hypercube, and outputing to output hypercubes
+%%%constraint:
+%morphology=xor_mimic, %xor_mimic 
+%connection_architecture = recurrent, %recurrent|feedforward 
+%neural_afs=[tanh,cos,gaussian,absolute] %[tanh,cos,gaussian,absolute,sin,sqrt,sigmoid],
+%neural_pfs=[none], %[none,hebbian,neuro_modulated]
+%neural_aggr_fs=[dot_product], %[dot_product, mult_product, diff]
+%tuning_selection_fs=[all], %[all,all_random, recent, recent_random, lastgen,lastgen_random]
+%tuning_duration_f={const,any()::Parameter}, %[{const,any()::Parameter},{size_proportional,any()::Parameter}...]
+%annealing_parameters=[0], %[0,1,2,0.5...]
+%perturbation_ranges=[1], %[0.5,1,2,3...]
+%agent_encoding_types= [neural], %[neural,substrate]
+%mutation_operators= [{atom()::FunctionName,float()}...]
+%tot_topological_mutations_fs = [{ncount_exponential,0.5}], %[{ncount_exponential,0.5},{ncount_linear,1}]
+%population_evo_alg_f=generational_default, %[generational, steady_state]
+%population_fitness_postprocessor_f=size_proportional, %[none,size_proportional]
+%population_selection_f=competition %[competition,top3]
 
-%======================================NEURON======================================
-%id: {{LI,PI},neuron,UniqueId} :: -1 < LI < 1, -1 < PI < 1
-%lt:{[hebbian,none],[tanh,cos,quadratic,guassian,mhat,step]}, exp: [hebbian,tanh], [Adaptor,ActivationFunction]
-%type:[standard|bst|neuromodulated]
-%DWP:[{Id1,WPC1},{Id2,WPC2},{Id3,WPC3}...{IdN,[{W1,DW1,LP2}...{Wk,DWk,LPk}]},{threshold,[{W,DW,LP}]}]
-%DWP:[{Id1,WPC1},{Id2,WPC2},{Id3,WPC3}...{threshold,[{W,{Max,Min,Sample_Max,Sample_Min,Sample_Size},LP}]}]??????????????????????????????????????/
-%I:[{Id1,IVL1},{Id2,IVL2}...]
-%O:[Id1,Id2...]
-%RO:[Id1,Id2...]
-%modulation:[none,static,self,external]
-%PI:[Id]
-%I:[{Id1,WPC1,IV2},{Id2,WPC2,IV2}...{IdN,[{W1,DW1,LP2}...{Wk,DWk,LPk}],[IV1...IVk]},{threshold,[{W,DW,LP}],[1]}]
+%%%polis
+%id= atom()|float()|{float()::Unique_Id,polis}|{atom()::PolisName,polis}
+
+%%%scape
+%id= atom()|float()|{float()::Unique_Id,scape}|{atom()::ScapeName,scape}

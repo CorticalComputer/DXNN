@@ -1,244 +1,166 @@
-%% This source code and work is provided and developed by DXNN Research Group WWW.DXNNResearch.COM
-%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% This source code and work is provided and developed by Gene I. Sher & DXNN Research Group WWW.DXNNResearch.COM
+%
 %Copyright (C) 2009 by Gene Sher, DXNN Research Group, CorticalComputer@gmail.com
 %All rights reserved.
 %
 %This code is licensed under the version 3 of the GNU General Public License. Please see the LICENSE file that accompanies this project for the terms of use.
+%
+%The original release of this source code and the DXNN MK2 system was introduced and explained (architecture and the logic behind it) in my book: Handbook of Neuroevolution Through Erlang. Springer 2012, print ISBN: 978-1-4614-4462-6 ebook ISBN: 978-1-4614-4463-6. 
+%%%%%%%%%%%%%%%%%%%% Deus Ex Neural Network :: DXNN %%%%%%%%%%%%%%%%%%%%
 
 -module(morphology).
 -compile(export_all).
 -include("records.hrl").
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% HYPERCUBE %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%CF:
-%	neural:		[{Actuator1,[N_Id1...N_Idn]},{Actuator2,[N_Id1...N_Idn]}...]
-%	hypercube:	[{GeoTag1,[N_Id1...]},{GeoTag2,[N_Id2...]}...] HyperTag:[{weight,1}...]
-%CT:
-%	neural:		[{Sensor1,[{N_Id1,FilterTag1},{N_Id2,FilterTag2}...]}...] FilterTag:{single,Index} | {block,VL}
-%	hypercube:	[{GeoTag1,[{N_Id1,FilterTag1},{N_Id2,FilterTag2}...]}...] GeoTag:[{cartesian,VL}...], FilterTag:{single,Index} | {block,VL}
-%-record(sCT,{name,tot_vl,parameters}).
-%-record(sCF,{name,tot_vl,parameters}).
-get_InitHCF(Dimensions,Plasticity)->
-	[lists:nth(1,get_HCF(Dimensions,Plasticity))].
-	
-get_InitHCT(Dimensions,Plasticity)->%Dimensions*2 +3 due to 1 set of To coordinates and 1 set of From coordinates, plus 3 values: InputVal,OutputVal,CurrentWeight
-	[lists:nth(1,get_HCT(Dimensions,Plasticity))].
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Get Init Standard Actuators/Sensors %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+get_InitSensors(Morphology)->
+	Sensors = morphology:Morphology(sensors),
+	[lists:nth(1,Sensors)].
 
-get_HCF(Dimensions,Plasticity)->
-	HCF = case Plasticity of
-		iterative ->
-			[#sCF{name=delta_weight,tot_vl=1}]; %[{delta_weight,1}];
-		abcn ->
-			[#sCF{name=abcn,tot_vl=4}]; %[{abcn,4}];
-		none ->
-			[#sCF{name=weight,tot_vl=1}]; %[{weight,1}]
-		modular_none ->
-			[#sCF{name=weight_expression,tot_vl=2}] %[{weight_conexpr,2}]
-	end,
-	HCF.
-	
-get_HCT(Dimensions,Plasticity)->
+get_InitActuators(Morphology)->
+	Actuators = morphology:Morphology(actuators),
+	[lists:nth(1,Actuators)].
+
+get_Sensors(Morphology)->
+	morphology:Morphology(sensors).
+
+get_Actuators(Morphology)->
+	morphology:Morphology(actuators).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Get Init Substrate_CPPs/Substrate_CEPs %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+get_InitSubstrateCPPs(Dimensions,Plasticity)->
+	Substrate_CPPs = get_SubstrateCPPs(Dimensions,Plasticity),
+	[lists:nth(1,Substrate_CPPs)].
+
+get_InitSubstrateCEPs(Dimensions,Plasticity)->
+	Substrate_CEPs = get_SubstrateCEPs(Dimensions,Plasticity),
+	[lists:nth(1,Substrate_CEPs)].
+
+get_SubstrateCPPs(Dimensions,Plasticity)->
 	io:format("Dimensions:~p, Plasticity:~p~n",[Dimensions,Plasticity]),
-	HCT = if
-		(Plasticity == iterative) ->
+	if
+		(Plasticity == iterative) or (Plasticity == abcn) ->
 			Std=[
-				#sCT{name=cartesian,tot_vl=Dimensions*2+3},%{cartesian,Dimensions*2+3},
-				#sCT{name=centripital_distances,tot_vl=2+3},%{centripital_distances,2+3},
-				#sCT{name=cartesian_distance,tot_vl=1+3},%{cartesian_distance,1+3},
-				#sCT{name=cartesian_CoordDiffs,tot_vl=Dimensions+3},%{cartesian_CoordDiffs,Dimensions+3}
-				#sCT{name=cartesian_GaussedCoordDiffs,tot_vl=Dimensions+3},%{cartesian_GaussedCoordDiffs,Dimensions+3}
-				#sCT{name=iow,tot_vl=3}%{iow,3}
+				#sensor{name=cartesian,type=substrate,vl=Dimensions*2+3},%{cartesian,Dimensions*2+3},
+				#sensor{name=centripital_distances,type=substrate,vl=2+3},%{centripital_distances,2+3},
+				#sensor{name=cartesian_distance,type=substrate,vl=1+3},%{cartesian_distance,1+3},
+				#sensor{name=cartesian_CoordDiffs,type=substrate,vl=Dimensions+3},%{cartesian_CoordDiffs,Dimensions+3}
+				#sensor{name=cartesian_GaussedCoordDiffs,type=substrate,vl=Dimensions+3},%{cartesian_GaussedCoordDiffs,Dimensions+3}
+				#sensor{name=iow,type=substrate,vl=3}%{iow,3}
 			],
 			Adt=case Dimensions of
 				2 ->
-					[#sCT{name=polar,tot_vl=Dimensions*2+3}];%[{polar,Dimensions*2+3}];
+					[#sensor{name=polar,type=substrate,vl=Dimensions*2+3}];%[{polar,Dimensions*2+3}];
 				3 ->
-					[#sCT{name=spherical,tot_vl=Dimensions*2+3}];%[{spherical,Dimensions*2+3}]
+					[#sensor{name=spherical,type=substrate,vl=Dimensions*2+3}];%[{spherical,Dimensions*2+3}]
 				_ -> 
 					[]
 			end,
 			lists:append(Std,Adt);
-		(Plasticity == none) or (Plasticity == abcn) or (Plasticity == modular_none)->
+		(Plasticity == none) or (Plasticity == modular_none)->
 			Std=[
-				#sCT{name=cartesian,tot_vl=Dimensions*2},%{cartesian,Dimensions*2},
-				#sCT{name=centripital_distances,tot_vl=2},%{centripital_distances,2},
-				#sCT{name=cartesian_distance,tot_vl=1},%{cartesian_distance,1},
-				#sCT{name=cartesian_CoordDiffs,tot_vl=Dimensions},%{cartesian_CoordDiffs,Dimensions+3}
-				#sCT{name=cartesian_GaussedCoordDiffs,tot_vl=Dimensions}%{cartesian_GaussedCoordDiffs,Dimensions+3}
+				#sensor{name=cartesian,type=substrate,vl=Dimensions*2},%{cartesian,Dimensions*2},
+				#sensor{name=centripital_distances,type=substrate,vl=2},%{centripital_distances,2},
+				#sensor{name=cartesian_distance,type=substrate,vl=1},%{cartesian_distance,1},
+				#sensor{name=cartesian_CoordDiffs,type=substrate,vl=Dimensions},%{cartesian_CoordDiffs,Dimensions+3}
+				#sensor{name=cartesian_GaussedCoordDiffs,type=substrate,vl=Dimensions}%{cartesian_GaussedCoordDiffs,Dimensions+3}
 			],
 			Adt=case Dimensions of
 				2 ->
-					[#sCT{name=polar,tot_vl=Dimensions*2}];%[{polar,Dimensions*2}];
+					[#sensor{name=polar,type=substrate,vl=Dimensions*2}];%[{polar,Dimensions*2}];
 				3 ->
-					[#sCT{name=spherical,tot_vl=Dimensions*2}];%[{spherical,Dimensions*2}]
+					[#sensor{name=spherical,type=substrate,vl=Dimensions*2}];%[{spherical,Dimensions*2}]
 				_ -> 
 					[]
 			end,
 			lists:append(Std,Adt)
-	end,
-	HCT.
+	end.
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% NEURAL %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% GLOBAL Sensors/Actuators %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Get Init Actuators/Sensors %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-get_InitActuators(Morphology)->
-	[lists:nth(1,morphology:Morphology(actuators))].
+get_SubstrateCEPs(Dimensions,Plasticity)->
+	case Plasticity of
+		iterative ->
+			[#actuator{name=delta_weight,type=substrate,vl=1}]; %[{delta_weight,1}];
+		abcn ->
+			[#actuator{name=set_abcn,type=substrate,vl=5}]; %[{abcn,4}];
+		none ->
+			[#actuator{name=set_weight,type=substrate,vl=1}]; %[{weight,1}]
+		modular_none ->
+			[#actuator{name=weight_expression,type=substrate,vl=2}] %[{weight_conexpr,2}]
+	end.
 	
-get_InitSensors(Morphology)->
-	Sensors = morphology:Morphology(sensors),
-	%[lists:nth(random:uniform(length(CT)),CT)].
-	[lists:nth(1,Sensors)].
-
-get_Actuators(Morphology)->
-	morphology:Morphology(actuators).
-	
-get_Sensors(Morphology)->
-	morphology:Morphology(sensors).
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% XOR_MIMIC %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-xor_mimic(actuators)->
-	[
-		#actuator{name=xor_output,id=test,format=no_geo,tot_vl=1,parameters=[3]}
-	];
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% MORPHOLOGIES %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 xor_mimic(sensors)->
 	[
-		#sensor{name=xor_input,id=test,format=no_geo,tot_vl=2,parameters=[2]}
+		#sensor{name=xor_GetInput,type=standard,scape={private,xor_sim},vl=2}
+	];
+xor_mimic(actuators)->
+	[
+		#actuator{name=xor_SendOutput,type=standard,scape={private,xor_sim},vl=1}
+	].
+%*Every sensor and actuator uses some kind of function associated with it. A function that either polls the environment for sensory signals (in the case of a sensor) or acts upon the environment (in the case of an actuator). It is a function that we need to define and program before it is used, and the name of the function is the same as the name of the sensor or actuator it self. For example, the create_Sensor/1 has specified only the rng sensor, because that is the only sensor function we've finished developing. The rng function has its own vl specification, which will determine the number of weights that a neuron will need to allocate if it is to accept this sensor's output vector. The same principles apply to the create_Actuator function. Both, create_Sensor and create_Actuator function, given the name of the sensor or actuator, will return a record with all the specifications of that element, each with its own unique Id.
+
+pole_balancing(sensors)->
+	[
+		#sensor{name=pb_GetInput,type=standard,scape={private,pb_sim},vl=3,parameters=[3]}
+	];
+pole_balancing(actuators)->
+	[
+		#actuator{name=pb_SendOutput,type=standard,scape={private,pb_sim},vl=1,parameters=[with_damping,1]}
+	].
+%Both, the pole balancing sensor and actuator, interface with the pole balancing simulation, a private scape. The type of problem the pole balancing simulation is used as depends on the sensor and acutuator parameters. The sensor's vl and parameters specify that the sensor will request the private scape for the cart's and pole's position and angular position respectively. The actuator's parameters specify that the scape should use without_damping type of fitness, and that since only a single pole is being used, that the termination condition associated with the second pole will be zeroed out, by being multiplied by the specified 0 value. When instead of using 0, we use 1, the private scape would use the angular position of the second pole as an element in calculating the fitness score of the interfacing agent, and using that angular position for the purpose of calculating whether termination condition has been reached by the problem.
+
+discrete_tmaze(sensors)->
+	[
+		#sensor{name=dtm_GetInput,type=standard,scape={private,dtm_sim},vl=4,parameters=[all]}
+	];
+discrete_tmaze(actuators)->
+	[
+		#actuator{name=dtm_SendOutput,type=standard,scape={private,dtm_sim},vl=1,parameters=[]}
 	].
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% POLE2_BALANCING3 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
-pole2_balancing3(actuators)->
-	[
-		#actuator{name=pole2_balancing,id=dp_id3,format=no_geo,tot_vl=1,parameters=[3]}
-	];
-pole2_balancing3(sensors)->
-	[
-		#sensor{name=pole2_balancing,id=dp_id3,format=no_geo,tot_vl=3,parameters=[3]}
-	].
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% POLE2_BALANCING6 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
-pole2_balancing6(actuators)->
-	[
-		#actuator{name=pole2_balancing,id=dp_id6,format=no_geo,tot_vl=1,parameters=[6]}
-	];
-pole2_balancing6(sensors)->
-	[
-		#sensor{name=pole2_balancing,id=dp_id6,format=no_geo,tot_vl=6,parameters=[6]}
-	].
-	
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% vowel_recognition %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-vowel_recognition(actuators)->
-	[
-		#actuator{name=vowel_recognition,id=test,format=no_geo,tot_vl=11,parameters=[11]}
-	];
-vowel_recognition(sensors)->
-	[
-		#sensor{name=vowel_recognition,id=test,format=no_geo,tot_vl=10,parameters=[10]}
-	].
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% mines_vs_rocks %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-mines_vs_rocks(actuators)->
-	[
-		#actuator{name=mines_vs_rocks,id=test,format=no_geo,tot_vl=2,parameters=[2]}
-	];
-mines_vs_rocks(sensors)->
-	[
-		#sensor{name=mines_vs_rocks,id=test,format=no_geo,tot_vl=60,parameters=[60]}
-	].
-	
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% FOREX_TRADER %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
-forex_trader(actuators)->
-	[
-		#actuator{name=fx_Trade,id=fx_id,format=no_geo,tot_vl=1,parameters=[]}
-	];
-forex_trader(sensors)->
-	LinearSensors=[#sensor{name=Name,id=fx_id,format=no_geo,tot_vl=HRes,parameters=[HRes,close]} ||
-		Name <- [fx_ListSensor],HRes<-[10]],
-	GraphSensors = [#sensor{name=fx_GraphSensor,id=fx_id,format={symetric,[HRes,VRes]},tot_vl=HRes*VRes,parameters=[HRes,VRes]} ||
-		HRes <-[100], VRes<-[100]],
-	InternalSensors = [#sensor{name=fx_Internals,id=fx_id,format=no_geo,tot_vl=3,parameters=[3]}],%[Long|Short|Void,Value]
-	LinearSensors.%++InternalSensors.
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Flatlander %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
-%{2,{actuator,move_2d,cell_id,[2]}},
-%{2,{actuator,translate_2d,cell_id,[2]}}
-%Movement2d = {2,{actuator,rotate_and_move,cell_id,[2]}}
-flatlander(actuators)->
+predator(actuators)->
 	prey(actuators);
-flatlander(sensors)->
+predator(sensors)->
 	prey(sensors).
 
-%-record(sensor,{name,id,format,tot_vl,parameters,objects=[],vis=[]}).
-%-record(actuator,{name,id,format,tot_vl,parameters,objects=[],vis=[]}).
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Prey %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
 prey(actuators)->
-	Movement = [#actuator{name=two_wheels,id=cell_id,format=no_geo,tot_vl=2,parameters=[2]}],
-	Cloning = [#actuator{name=create_offspring,id=cell_id,format=no_geo,tot_vl=1,parameters=[1]}],
-	Weapons = [#actuator{name=spear,id=cell_id,format=no_geo,tot_vl=1,parameters=[1]}],
-	Communications = [#actuator{name=speak,id=cell_id,format=no_geo,tot_vl=1,parameters=[1]}],
-	%Movement = [{actuator,two_wheels,cell_id,no_geo,2,[2]}],
-	%Cloning = [{actuator,create_offspring,cell_id,no_geo,1,[1]}],
-	%Weapons = [{actuator,spear,cell_id,no_geo,1,[1]}],
-	%Communications = [{actuator,speak,cell_id,no_geo,1,[1]}],
-	Movement;%++Weapons;%++Communications;
+	Movement = [#actuator{name=differential_drive,type=standard,scape={public,flatland}, vl=2, parameters=[2]}],
+	Movement;
 prey(sensors)->
 	Pi = math:pi(),
-	Coned_Scanners = [#sensor{name=Name,id=cell_id,format=no_geo,tot_vl=Density,parameters=[Density]} || 
-		{Name,Density} <- [{coned_plant_sensor,4}]],
-	%Coned_Scanners =[{sensor,ScannerType,cell_id,no_geo,Density,[Density]}||Density<-[4],ScannerType<-[coned_plant_sensor]],
-%	Coned_Scanners =[{sensor,ScannerType,cell_id,no_geo,Density,[Density]}||Density<-[4,10],ScannerType<-[coned_plant_sensor,coned_prey_sensor,coned_poison_sensor]],
-%	Coned_Scanners =[{sensor,ScannerType,cell_id,no_geo,Density,[Density]}||Density<-[4],ScannerType<-[coned_energy_sensor]],
-	Distance_Scanners = [#sensor{name=distance_scanner,id=cell_id,format=no_geo,tot_vl=Density,parameters=[Spread,Density,ROffset]} || 
-		Spread<-[Pi/2],Density<-[5], ROffset<-[Pi*0/2]],
-	%Distance_Scanners =[{sensor,distance_scaner,cell_id,no_geo,Density,[Spread,Density,ROffset]} || Spread <-[Pi/2], Density <-[10], ROffset<-[Pi*0/2]],
-	Color_Scanners = [#sensor{name=color_scanner,id=cell_id,format=no_geo,tot_vl=Density,parameters=[Spread,Density,ROffset]} ||
-		Spread <-[Pi/2], Density <-[5], ROffset<-[Pi*0/2]],
-	%Color_Scanners =[{sensor,color_scaner,cell_id,no_geo,Density,[Spread,Density,ROffset]} || Spread <-[Pi/2], Density <-[10], ROffset<-[Pi*0/2]],
-	Energy_Scanners = [#sensor{name=energy_scanner,id=cell_id,format=no_geo,tot_vl=Density,parameters=[Spread,Density,ROffset]} ||
-		Spread <-[Pi/2], Density <-[5], ROffset<-[Pi*0/2]],
-	%Energy_Scanners =[{sensor,energy_scanner,cell_id,no_geo,Density,[Spread,Density,ROffset]} || Spread <-[Pi/2], Density <-[10], ROffset<-[Pi*0/2]],
-	Stat_Readers = [#sensor{name=Name,id=cell_id,format=no_geo,tot_vl=Density,parameters=Param} ||
-		{Name,Density,Param} <- [{energy_reader,1,[]}]],
-	%Stat_Readers = [{sensor,energy_reader,cell_id,no_geo,1,[]}],
-	Commmunications = [#sensor{name=Name,id=cell_id,format=no_geo,tot_vl=Density,parameters=[Spread,Density,ROffset]} ||
-		Name <- [sound_scanner], Spread <-[Pi/2], Density <-[10], ROffset<-[Pi*0/2]],
-	Orders = [#sensor{name=Name,id=cell_id,format=no_geo,tot_vl=3,parameters=[3]} || Name <- [order]],
-	Beacons = [#sensor{name=Name,id=cell_id,format=no_geo,tot_vl=4,parameters=[4]} || Name <- [guard]],
-	%Communications = [{sensor,hear,cell_id,no_geo,Density,[Spread,Density,ROffset]} || Spread <-[Pi/2], Density <-[10], ROffset<-[Pi*0/2]],
-	%lists:append([Coned_Scanners,Distance_Scanners,Color_Scanners,Stat_Readers]).
-	Color_Scanners++Distance_Scanners++Orders++Beacons.%++Communications.%++Energy_Scanners++Stat_Readers.
+	Color_Scanners = [#sensor{name=color_scanner,type=standard,scape={public,flatland},vl=Density, parameters=[Spread,Density,ROffset]} || Spread <-[Pi/2], Density <-[5], ROffset<-[Pi*0/2]],
+	Range_Scanners = [#sensor{name=range_scanner,type=standard,scape={public,flatland},vl=Density, parameters=[Spread,Density,ROffset]} || Spread <-[Pi/2], Density <-[5], ROffset<-[Pi*0/2]],
+	Color_Scanners++Range_Scanners.
+	
+forex_trader(actuators)->
+	[
+		#actuator{name=fx_Trade,type=standard,scape={private,fx_sim},format=no_geo,vl=1,parameters=[]}
+	];
+forex_trader(sensors)->
+	PLI_Sensors=[#sensor{name=fx_PLI,type=standard,scape={private,fx_sim},format=no_geo,vl=HRes,parameters=[HRes,close]} || HRes<-[10]],
+	PCI_Sensors = [#sensor{name=fx_PCI,type=standard,scape={private,fx_sim},format={symmetric,[HRes,VRes]},vl=HRes*VRes,parameters=[HRes,VRes]} || HRes <-[10], VRes<-[10]],
+	InternalSensors = [#sensor{name=fx_Internals,type=standard,scape={private,fx_sim},format=no_geo,vl=3,parameters=[3]}],%[Long|Short|Void],Value
+	PCI_Sensors.%++InternalSensors.
 
 epitopes(actuators)->
+	TableName=abc_pred16,
 	SequenceLength=336,
-	Parameters=[
-		TableName=abc_pred16,
-		StartIndex=561,
-		EndIndex=1400,
-		StartBenchIndex=1401,
-		EndBenchIndex=280,
-		StartTestIndex=281,
-		EndTestIndex=560
-	],
-	[#actuator{name=abc_pred,id=cell_id,format=no_geo,tot_vl=1,parameters=Parameters}];
+	StartIndex=1121,
+	EndIndex=560,
+	StartBenchIndex=561,
+	EndBenchIndex=840,
+	[#actuator{name=abc_pred,type=standard,scape={private,epitopes},format=no_geo,vl=1,parameters=[TableName,StartIndex,EndIndex,StartBenchIndex,EndBenchIndex]}];
 epitopes(sensors)->
+	TableName=abc_pred16,
 	SequenceLength=336,
-	Parameters=[
-		TableName=abc_pred16,
-		StartIndex=561,
-		EndIndex=1400,
-		StartBenchIndex=1401,
-		EndBenchIndex=280,
-		StartTestIndex=281,
-		EndTestIndex=560
-	],
-	[#sensor{name=abc_pred,id=fx_id,format=no_geo,tot_vl=336,parameters=Parameters}].
+	StartIndex=1121,
+	EndIndex=560,
+	StartBenchIndex=561,
+	EndBenchIndex=840,
+	[#sensor{name=abc_pred,type=standard,scape={private,epitopes},format=no_geo,vl=SequenceLength,parameters=[TableName,StartIndex,EndIndex,StartBenchIndex,EndBenchIndex]}].
 
-create_format(Type,Precurser)->
-	case Type of
-		no_geo ->
-			[Precurser];
-		symetric ->
-			[XRes,YRes] = Precurser,
-			[XRes || _ <- lists:seq(YRes)];
-		asymetric ->
-			Precurser
-	end.
+
+generate_id() ->
+	{MegaSeconds,Seconds,MicroSeconds} = now(), 
+	1/(MegaSeconds*1000000 + Seconds + MicroSeconds/1000000).

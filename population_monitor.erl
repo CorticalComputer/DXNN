@@ -1,52 +1,54 @@
-%% This source code and work is provided and developed by DXNN Research Group WWW.DXNNResearch.COM
-%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% This source code and work is provided and developed by Gene I. Sher & DXNN Research Group WWW.DXNNResearch.COM
+%
 %Copyright (C) 2009 by Gene Sher, DXNN Research Group, CorticalComputer@gmail.com
 %All rights reserved.
 %
 %This code is licensed under the version 3 of the GNU General Public License. Please see the LICENSE file that accompanies this project for the terms of use.
+%
+%The original release of this source code and the DXNN MK2 system was introduced and explained (architecture and the logic behind it) in my book: Handbook of Neuroevolution Through Erlang. Springer 2012, print ISBN: 978-1-4614-4462-6 ebook ISBN: 978-1-4614-4463-6. 
+%%%%%%%%%%%%%%%%%%%% Deus Ex Neural Network :: DXNN %%%%%%%%%%%%%%%%%%%%
 
 -module(population_monitor).
--include("forex_db.hrl").
 -include("records.hrl").
-%-compile(export_all).
 %% API
--export([start_link/1,start_link/0,start/1,start/0,stop/0,init/2,init_population/1,continue/2,extract_DXIds/2,delete_population/1,championship/0,champion/0]).
+-export([start_link/1,start_link/0,start/1,start/0,stop/0,init/2]).
 %% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3,create_MutantDXCopy/1,test/0,new/0,reset/0,backup/0,info/1]).
-
-%-record(state, {}).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3,create_MutantAgentCopy/1,test/0, create_specie/3, continue/2, continue/3, init_population/2, prep_PopState/2, extract_AgentIds/2,delete_population/1]).
 -behaviour(gen_server).
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Population Monitor Options %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--define(SURVIVAL_TYPE,competition). %competition,pl_competition,simple_ranking,speciated_ranking,forced_speciation
-%competition: The survival and replication is purely based on the fitness, which determines the energy left for node creation. If it's above the creator's total nodes,
-%	a new mutated copy can be made, if it is less than 50%, then the entity dies, if it is >50% but <100%, 50% of the energy requirenment for creation is subtracted.
-%	The cost of each Neuron is based on the average fitness from the first generation from the population of all the single Neuron individuals.
-%pl_competition: Same as competition but the cost for each neuron is based on the population limit and the average number of Neurons, weighted with the fitness.
-%simple_ranking: The fitnesses are ranked from greatest to smallest, top 3 are chosen, and then based on their ration of fitness to to fitness  creation is allowed.
-%speciated_ranking: First we choose 3 of top, topologically different individuals, and then produce a specific number of mutants for each individual.
-%forced_speciation: We diffirintiate everyone into their own topological group. Then within each group the individuals are ranked, and some number of top individuals are 
-%	allowed to create mutant coppies, if the specie has not produced any improvements in some number of generations, it is removed.
-%-define(TOT_INIT_SPECIES,1).
-%Morphologies:pole2_balancing3,prey,forex_trader, xor_mimic
--define(EFF,0.05). %Efficiency., TODO: this should further be changed from absolute number of neurons, to diff in lowest or avg, and the highest number of neurons
--define(INIT_CONSTRAINTS,[#constraint{morphology=Morphology,sc_types=SC_Types, sc_neural_plasticity=[none], sc_hypercube_plasticity=[none],sc_hypercube_linkform = Substrate_LinkForm,sc_neural_linkform=LinkForm}|| Morphology<-[epitopes],Substrate_LinkForm <- [[feedforward]], LinkForm<-[recursive],SC_Types<-[[neural]]]).
--define(SURVIVAL_PERCENTAGE,0.5).
--define(SPECIE_SIZE_LIMIT,50).
--define(INIT_SPECIE_SIZE,50).
-%-define(POPULATION_LIMIT,?SPECIE_SIZE_LIMIT*length(?INIT_MORPHOLOGIES)).
--define(INIT_POPULATION_ID,test).
-%-define(INIT_ARCHITECTURE_TYPE,modular).
-%-define(INIT_LINK_FORM,recursive).
--define(OP_MODE,gt).
--define(INIT_POLIS,mathema).
--define(GENERATION_LIMIT,1000).
--define(EVALUATIONS_LIMIT,1000000).
--define(DIVERSITY_COUNT_STEP,500).
--define(GEN_UID,technome_constructor:generate_UniqueId()).
--define(CHAMPION_COUNT_STEP,500).
--define(GOAL_EVALS,15000).
--record(state,{op_mode,population_id,activeDX_IdPs,inactiveDX_Ids,dx_ids,tot_individuals,individuals_left,op_tag,dx_summaries=[],attempt=0,evaluations_acc=0,step_size,next_step,goal_status,survival_type}).
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Population Monitor Options & Parameters %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+-define(INIT_CONSTRAINTS,[#constraint{morphology=Morphology,connection_architecture=CA, population_evo_alg_f=generational,neural_pfns=[none],agent_encoding_types=[neural],substrate_plasticities=[iterative],substrate_linkforms = [l2l_feedforward]} || Morphology<-[epitopes],CA<-[feedforward]]).
+-record(state,{
+	op_mode = gt,
+	population_id = test,
+	activeAgent_IdPs = [],
+	agent_ids = [],
+	tot_agents,
+	agents_left,
+	op_tag,
+	agent_summaries = [],
+	pop_gen = 0,
+	eval_acc = 0,
+	cycle_acc = 0,
+	time_acc = 0,
+	tot_evaluations = 0,
+	step_size,
+	goal_status,
+	evolutionary_algorithm,
+	fitness_postprocessor,
+	selection_algorithm,
+	best_fitness,
+	survival_percentage = 0.5,
+	specie_size_limit = 10,
+	init_specie_size = 10,
+	polis_id = mathema,
+	generation_limit = 100,
+	evaluations_limit = 100000,
+	fitness_goal = inf,
+	benchmarker_pid,
+	goal_reached=false
+}).
 %%==================================================================== API
 %%--------------------------------------------------------------------
 %% Function: start_link() -> {ok,Pid} | ignore | {error,Error}
@@ -78,55 +80,34 @@ init(Pid,InitState)->
 %%                         {stop, Reason}
 %% Description: Initiates the server
 %%--------------------------------------------------------------------
-%-record(population,{id,avg_fitness,type,specie_ids,topspecie_ids,polis_id}).
-%-record(specie,{id,avg_fitness,stagnation_factor,dx_ids,topdx_ids,championdx_ids,population_id}).
-init(Parameters) ->
+init(S) ->
 	process_flag(trap_exit,true),
 	register(monitor,self()),
-	io:format("******** Population monitor started with parameters:~p~n",[Parameters]),
-	put(champion_step,50),
-	State = case Parameters of
-		{championship,Population_Id}->
-			ChampionDX_Ids = extract_DXIds(Population_Id,champions),
-			put(max_trials,100),
-			ActiveDX_IdPs = summon_dxs(championship,ChampionDX_Ids),
-			io:format("ChampDXIds:~p~n",[ChampionDX_Ids]),
-			#state{op_mode=championship,
-				population_id = Population_Id,
-				activeDX_IdPs = ActiveDX_IdPs,
-				tot_individuals = length(ChampionDX_Ids),
-				individuals_left = length(ChampionDX_Ids),
-				op_tag = continue};
-		{champion,Population_Id}->
-			[TopChampionDX_Id|_ChampionDX_Ids] = extract_DXIds(Population_Id,champions),
-			put(max_trials,100),
-			ActiveDX_IdPs = summon_dxs(championship,[TopChampionDX_Id]),
-			io:format("TopChampionDXIds:~p~n",[TopChampionDX_Id]),
-			#state{op_mode=championship,
-				population_id = Population_Id,
-				activeDX_IdPs = ActiveDX_IdPs,
-				tot_individuals = length([TopChampionDX_Id]),
-				individuals_left = length([TopChampionDX_Id]),
-				op_tag = continue};
-		{OpMode,Population_Id,Survival_Type}->
-			DX_Ids = extract_DXIds(Population_Id,all),
-			[P] = mnesia:dirty_read({population,Population_Id}),
-			T=P#population.trace,
-			[put({evaluations,Specie_Id},0) || Specie_Id<-P#population.specie_ids],
-			[put({active,Specie_Id},extract_SpecieDXIds(Specie_Id))|| Specie_Id<-P#population.specie_ids],
-			calculate_MaxTrials(DX_Ids),
-			ActiveDX_IdPs = summon_dxs(OpMode,DX_Ids),
-			#state{op_mode=OpMode,
-				population_id = Population_Id,
-				activeDX_IdPs = ActiveDX_IdPs,
-				tot_individuals = length(DX_Ids),
-				individuals_left = length(DX_Ids),
-				evaluations_acc = 0,
-				step_size = T#trace.step_size,
-				op_tag = continue,
-				survival_type = Survival_Type}
-	end,
+	Population_Id = S#state.population_id,
+	OpMode = S#state.op_mode,
+	io:format("******** Population monitor started with parameters:~p~n",[S]),
+	Agent_Ids = extract_AgentIds(Population_Id,all),
+	ActiveAgent_IdPs = summon_agents(OpMode,Agent_Ids),
+	P = genotype:dirty_read({population,Population_Id}),
+	[put({evaluations,Specie_Id},0) || Specie_Id<-P#population.specie_ids],
+	T = P#population.trace,
+	TotEvaluations=T#trace.tot_evaluations,
+	io:format("Initial Tot Evaluations:~p~n",[TotEvaluations]),
+	State = S#state{
+		population_id = Population_Id,
+		activeAgent_IdPs = ActiveAgent_IdPs,
+		tot_agents = length(Agent_Ids),
+		agents_left = length(Agent_Ids),
+		op_tag = continue,
+		evolutionary_algorithm = P#population.evo_alg_f,
+		fitness_postprocessor = P#population.fitness_postprocessor_f,
+		selection_algorithm = P#population.selection_f,
+		best_fitness = 0,
+		step_size = T#trace.step_size,
+		tot_evaluations = TotEvaluations
+	},
 	{ok, State}.
+%In init/1 the population_monitor proces registers itself with the node under the name monitor, and sets all the needed parameters within its #state record. The function first extracts all the Agent_Ids that belong to the population using the extract_AgentIds/2 function. Each agent is then spawned/activated, converted from genotype to phenotype in the summon_agents/2 function. The summon_agents/2 function summons the agents and returns to the caller a list of tuples with the following format: [{Agent_Id,Agent_PId}...]. Once the state record's parameters have been set, the function drops into the main gen_server loop.
 
 %%--------------------------------------------------------------------
 %% Function: %% handle_call(Request, From, State) -> {reply, Reply, State} |
@@ -137,43 +118,13 @@ init(Parameters) ->
 %%                                      {stop, Reason, State}
 %% Description: Handling call messages
 %%--------------------------------------------------------------------
-handle_call({request,topDX_Ids}, _From, S)->
-	Population_Id = S#state.population_id,
-	OpTag = S#state.op_tag,
-	IndividualsLeft = S#state.individuals_left,
-	TopDX_Ids = extract_DXIds(Population_Id,top),
-	{reply, TopDX_Ids,S};
-handle_call({request,offspring,DX_Id},_From,S)->
-	[DX] = mnesia:dirty_read({dx,DX_Id}),
-	DXClone_Id = create_MutantDXCopy(DX_Id,safe),
-%	io:format("WinnerDX:~p DXClone:~p~n",[mnesia:dirty_read({dx,WinnerDX_Id}),mnesia:dirty_read({dx,DXClone_Id})]),
-%	io:format("Newborn:~p::~p~n",[DXClone_Id,{WinnerFitness,WinnerProfile,WinnerDX_Id}]),
-%	{ok,_PId} = exoself:start_link({S#state.op_mode,DXClone_Id,void_MaxTrials}),
-	Specie_Id = DX#dx.specie_id,
-	ActiveDXIds = get({active,Specie_Id}),
-	put({active,Specie_Id},[DXClone_Id|ActiveDXIds]),
-	{reply,DXClone_Id,S};
-handle_call(get_TRACE,_From,S)->
-	Population_Id = S#state.population_id,
-	[P] = mnesia:dirty_read({population,Population_Id}),
-	{reply,P#population.trace,S};
-handle_call(get_evaluations,_From,S)->
-	Population_Id = S#state.population_id,
-	[P] = mnesia:dirty_read({population,Population_Id}),
-	T = P#population.trace,
-	{reply,T#trace.tot_evaluations,S};
-handle_call({request,max_trials}, From, S)->
-	Max_Trials = get(max_trials),
-	{reply, {reply,Max_Trials},S};
-handle_call(terminate,From,S)->
-	ActiveDX_IdPs = S#state.activeDX_IdPs,
-	[gen_server:cast(DX_PId,{self(),terminate}) || {_DX_Id,DX_PId}<-ActiveDX_IdPs],
-	%From ! {self(),ok},
-	{stop,normal,ok,S};
-handle_call({stop,normal},_From, State)->
-	{stop, normal, State};
+handle_call({stop,normal},_From, S)->
+	ActiveAgent_IdPs = S#state.activeAgent_IdPs,
+	[Agent_PId ! {self(),terminate} || {_DAgent_Id,Agent_PId}<-ActiveAgent_IdPs],
+	{stop, normal, S};
 handle_call({stop,shutdown},_From,State)->
 	{stop, shutdown, State}.
+%If the population_monitor process receives a {stop,normal} call, it checks if there are any still active agents. If there are any, it terminates them, and then itself terminates.
 
 %%--------------------------------------------------------------------
 %% Function: handle_cast(Msg, State) -> {noreply, State} |
@@ -181,206 +132,189 @@ handle_call({stop,shutdown},_From,State)->
 %%                                      {stop, Reason, State}
 %% Description: Handling cast messages
 %%--------------------------------------------------------------------
-handle_cast({DX_Id,terminated,Fitness,Fitness_Profile},S) when S#state.survival_type == competition ->
+handle_cast({Agent_Id,terminated,Fitness},S) when S#state.evolutionary_algorithm == generational ->
 	Population_Id = S#state.population_id,
 	OpTag = S#state.op_tag,
-	IndividualsLeft = S#state.individuals_left,
 	OpMode = S#state.op_mode,
-	case (IndividualsLeft-1) =< 0 of
+	AgentsLeft = S#state.agents_left,
+	case (AgentsLeft-1) =< 0 of
 		true ->
-			mutate_population(Population_Id,?SPECIE_SIZE_LIMIT,S#state.survival_type),
-			benchmark ! {self(), tunning_phase,done},
-			U_Attempt = S#state.attempt+1,
-			io:format("Attempt:~p Ended.~n~n~n",[U_Attempt]),
+%			benchmark ! {self(), tunning_phase,done},
+			mutate_population(Population_Id,S#state.specie_size_limit,S#state.fitness_postprocessor,S#state.selection_algorithm),
+			U_PopGen = S#state.pop_gen+1,
+%			io:format("Population Generation:~p Ended.~n~n~n",[U_PopGen]),
 			case OpTag of
 				continue ->
-					case (U_Attempt >= ?GENERATION_LIMIT) or (S#state.evaluations_acc >= ?EVALUATIONS_LIMIT) of
-						true ->%FAILED
-							benchmark ! {self(),goal_failed,S#state.evaluations_acc,U_Attempt},
-							DX_Ids = extract_DXIds(Population_Id,all),
-							U_S = S#state{dx_ids = DX_Ids,tot_individuals =length(DX_Ids),individuals_left = length(DX_Ids),attempt=U_Attempt},
-							{noreply,U_S};
+					Specie_Ids = (genotype:dirty_read({population,Population_Id}))#population.specie_ids,
+					SpecFitList=[(genotype:dirty_read({specie,Specie_Id}))#specie.fitness || Specie_Id <- Specie_Ids],
+					BestFitness=lists:nth(1,lists:reverse(lists:sort([MaxFitness || {_,_,MaxFitness,_} <- SpecFitList]))),
+					Generation_Limit=S#state.generation_limit,
+					Evaluation_Limit=S#state.evaluations_limit,
+					Fitness_Goal=S#state.fitness_goal,
+					case (U_PopGen >= Generation_Limit) or (S#state.tot_evaluations >= Evaluation_Limit) or (BestFitness >= Fitness_Goal) or S#state.goal_reached of
+						true ->%ENDING_CONDITION_REACHED
+							%benchmark ! {self(),goal_failed,S#state.evaluations_acc,U_PopGen},
+							Agent_Ids = extract_AgentIds(Population_Id,all),
+							TotAgents=length(Agent_Ids),
+							U_S=S#state{agent_ids=Agent_Ids, tot_agents=TotAgents, agents_left=TotAgents, pop_gen=U_PopGen},
+							{stop,normal,U_S};
 						false ->%IN_PROGRESS
-							DX_Ids = extract_DXIds(Population_Id,all),
-							calculate_MaxTrials(DX_Ids),
-							summon_dxs(OpMode,DX_Ids),
-							U_S = S#state{dx_ids = DX_Ids,tot_individuals =length(DX_Ids),individuals_left = length(DX_Ids),attempt=U_Attempt},
+							Agent_Ids = extract_AgentIds(Population_Id,all),
+							U_ActiveAgent_IdPs=summon_agents(OpMode,Agent_Ids),
+							TotAgents=length(Agent_Ids),
+							U_S=S#state{activeAgent_IdPs=U_ActiveAgent_IdPs, tot_agents=TotAgents, agents_left=TotAgents, pop_gen=U_PopGen},
 							{noreply,U_S}
 					end;
-				bypass ->
-					DX_Ids = extract_DXIds(Population_Id,all),
-					calculate_MaxTrials(DX_Ids),
-					summon_dxs(OpMode,DX_Ids),
-					U_S = S#state{dx_ids = DX_Ids,tot_individuals = length(DX_Ids),individuals_left = length(DX_Ids),attempt=U_Attempt},
-					{noreply,U_S};
 				done ->
-					io:format("Shutting down Population Monitor and all associated Individuals~n"),
-					U_S = S#state{individuals_left = 0,attempt=U_Attempt},
+					io:format("Shutting down Population Monitor~n"),
+					U_S = S#state{agents_left = 0,pop_gen=U_PopGen},
 					{stop,normal,U_S};
 				pause ->
 					io:format("Population Monitor has paused.~n"),
-					benchmark ! {self(), monitor, paused},
-					U_S = S#state{individuals_left = 0,attempt=U_Attempt},
+					%benchmark ! {self(), monitor, paused},
+					U_S = S#state{agents_left=0,pop_gen=U_PopGen},
 					{noreply,U_S}
 			end;
 		false ->
-			io:format("Individuals Left:~p~n ",[IndividualsLeft-1]),
-			ActiveDX_IdPs = S#state.activeDX_IdPs,
-			U_ActiveDX_Ids = lists:keydelete(DX_Id,1,ActiveDX_IdPs),
-			U_S = S#state{dx_ids = U_ActiveDX_Ids,individuals_left = IndividualsLeft-1},
+			io:format("Agents Left:~p~n",[AgentsLeft-1]),
+			ActiveAgent_IdPs = S#state.activeAgent_IdPs,
+			U_ActiveAgent_Ids = lists:keydelete(Agent_Id,1,ActiveAgent_IdPs),
+			U_S = S#state{activeAgent_IdPs = U_ActiveAgent_Ids,agents_left = AgentsLeft-1},
 			{noreply,U_S}
 	end;
-handle_cast({DX_Id,terminated,Fitness,Fitness_Profile},State) when State#state.survival_type == polis ->
-%	IndividualsLeft = S#state.individuals_left,
+%This clause accepts the cast signals sent by the agents which terminate after finishing with their evaluations. The clause specialises in the "competition" selection algorithm, which is a generational selection algorithm. As a generation selection algorithm, it waits untill the entire population has finished being evaluated, and only then selects the fit from the unfit, and creates the updated population of the next generation. The OpTag can be set from the outsie to shutdown the population_monitor by setting it to done. Once an ending condition is reached, either through a generation limit, an evaluations limit, or fitness goal, the population_monitor exits normally. If the ending condition is not reached, the population_monitor spawns the new generation of agents and awaits again for all the agents in the population to complete their evaluations. If the OpTag is set to pause, it does not generate a new population, and instead goes into a waiting mode, and awaits to be restarted or terminated.
 
-	io:format("Tot Evaluations:~p~n",[State#state.evaluations_acc]),
-	[DX] = mnesia:dirty_read({dx,DX_Id}),
-	Morphology= DX#dx.morphology,
-	Specie_Id = DX#dx.specie_id,
-	[Specie] = mnesia:dirty_read({specie,Specie_Id}),
-	Old_DeadPool_DXSummaries = Specie#specie.dead_pool,
-	Old_DX_Ids = Specie#specie.dx_ids,
-	io:format("Old_DeadPool:~p~n Old_DX_Ids:~p~n",[Old_DeadPool_DXSummaries,Old_DX_Ids]),
-	DeadPool_DXSummaries = [{Fitness,Fitness_Profile,DX_Id}|Old_DeadPool_DXSummaries],
-	%io:format("DX:~p Morphology:~p~n",[DX,Morphology]),
-	
-	SDX=lists:reverse(lists:sort([{Fitness_/math:pow(TotN,?EFF),{Fitness_,[A,B,TotN],DX_Id_}}||{Fitness_,[A,B,TotN],DX_Id_}<-lists:reverse(lists:sort(DeadPool_DXSummaries))])),
-	ProperlySorted_DXSummaries = [Val || {_,Val}<-SDX],
-	%ProperlySorted_DXSummaries = lists:reverse(lists:sort(DXSummaries)),
-
-	Top_DXSummaries = lists:sublist(ProperlySorted_DXSummaries,round(?SPECIE_SIZE_LIMIT*?SURVIVAL_PERCENTAGE)),
-	
-	TotEnergy = lists:sum([extract_DXFitness(DXId) || {_Fitness,_Fitness_Profile,DXId}<-DeadPool_DXSummaries]),
-	TotNeurons = lists:sum([extract_DXTotNeurons(DXId) || {_Fitness,_Fitness_Profile,DXId} <- DeadPool_DXSummaries]),
-	NeuralEnergyCost = TotEnergy/TotNeurons,
-	%io:format("TotEnergy:~p TotNeurons:~p NeuralEnergyCost:~p~n",[TotEnergy,TotNeurons,NeuralEnergyCost]),
-	{AlotmentsP,NextGenSize_Estimate} = calculate_alotments(Top_DXSummaries,NeuralEnergyCost,[],0),
-	io:format("Morphology:~p DXSummaries:~p~n Top_DXSummaries:~p~n NeuralEnergyCost:~p~n NextGenSize_Estimate:~p~n AllotmentsP:~p~n",
-		[Morphology,DeadPool_DXSummaries,Top_DXSummaries,NeuralEnergyCost,NextGenSize_Estimate,AlotmentsP]),
-	{WinnerFitness,WinnerProfile,WinnerDX_Id}=choose_CompetitionWinner(AlotmentsP,random:uniform(round(100*NextGenSize_Estimate))/100,0),
-	Valid_DXSummaries = case length(ProperlySorted_DXSummaries) >= ?SPECIE_SIZE_LIMIT of
+handle_cast({Agent_Id,terminated,Fitness},S) when S#state.evolutionary_algorithm == steady_state ->
+	Population_Id = S#state.population_id,
+	Evaluation_Limit=S#state.evaluations_limit,
+	Fitness_Goal=S#state.fitness_goal,
+	NewBestFitness = case Fitness >= S#state.best_fitness of
 		true ->
-			[{InvalidFitness,InvalidProfile,InvalidDX_Id}|Remaining_DXSummaries] = lists:reverse(ProperlySorted_DXSummaries),
-%			io:format("Informationtheoretic Death:~p::~p~n",[InvalidDX_Id,{InvalidFitness,InvalidProfile,InvalidDX_Id}]),
-			delete_dx(InvalidDX_Id,safe),
-			Remaining_DXSummaries;
+			Fitness;
 		false ->
-			ProperlySorted_DXSummaries
+			S#state.best_fitness
 	end,
-	ActiveDX_IdP = case random:uniform() < 0.1 of%Update dx_ids, and dead_pool
+	case (S#state.tot_evaluations >= Evaluation_Limit) or (NewBestFitness > Fitness_Goal) or S#state.goal_reached of
 		true ->
-			U_DeadPool_DXSummaries = lists:delete({WinnerFitness,WinnerProfile,WinnerDX_Id},Valid_DXSummaries),
-			{ok,WinnerDX_PId} = exoself:start_link({State#state.op_mode,WinnerDX_Id,void_MaxTrials}),
-			{WinnerDX_Id,WinnerDX_PId};
+			case lists:keydelete(Agent_Id,1,S#state.activeAgent_IdPs) of
+				[] ->
+					U_S=S#state{activeAgent_IdPs=[]},
+					{stop,normal,U_S};
+				U_ActiveAgent_IdPs ->
+					U_S=S#state{activeAgent_IdPs=U_ActiveAgent_IdPs},
+					{noreply,U_S}
+			end;
 		false ->
-			U_DeadPool_DXSummaries = Valid_DXSummaries,
-			DXClone_Id = create_MutantDXCopy(WinnerDX_Id,safe),
-%			io:format("WinnerDX:~p DXClone:~p~n",[mnesia:dirty_read({dx,WinnerDX_Id}),mnesia:dirty_read({dx,DXClone_Id})]),
-%			io:format("Newborn:~p::~p~n",[DXClone_Id,{WinnerFitness,WinnerProfile,WinnerDX_Id}]),
-			{ok,DXClone_PId} = exoself:start_link({State#state.op_mode,DXClone_Id,void_MaxTrials}),
-			{DXClone_Id,DXClone_PId}
-	end,
-	{_,_,TopDX_Ids} = unzip3(lists:sublist(Top_DXSummaries,3)),
-	io:format("TopDX_Ids:~p~n",[TopDX_Ids]),
-%	update_TopDXs(Specie_Id,TopDX_Ids),
-	[USpecie]=mnesia:dirty_read({specie,Specie_Id}),
-	mnesia:dirty_write(USpecie#specie{dead_pool = U_DeadPool_DXSummaries,topdx_ids = TopDX_Ids}),
-
-	ActiveDX_IdPs = State#state.activeDX_IdPs,
-	U_ActiveDX_IdPs = [ActiveDX_IdP|lists:keydelete(DX_Id,1,ActiveDX_IdPs)],
-	U_State = State#state{dx_ids=U_ActiveDX_IdPs},
-	{noreply,U_State};
-handle_cast({DX_Id,champion_terminated,Fitness,Fitness_Profile},S)->
-	IndividualsLeft = S#state.individuals_left,
-	ActiveDX_IdPs = S#state.activeDX_IdPs,
-	U_ActiveDX_IdPs = lists:keydelete(DX_Id,1,ActiveDX_IdPs),
-	io:format("Champion Terminated:~p Fitness:~p FitnessProfile:~p~n",[DX_Id,Fitness,Fitness_Profile]),
-	case IndividualsLeft-1 == 0 of
-		true->
-			{stop, normal,S#state{activeDX_IdPs=U_ActiveDX_IdPs,individuals_left=IndividualsLeft-1}};
-		false ->
-			{noreply,S#state{activeDX_IdPs=U_ActiveDX_IdPs,individuals_left=IndividualsLeft-1}}
+			FitnessPostprocessorName = S#state.fitness_postprocessor,
+			SelectionAlgorithmName = S#state.selection_algorithm,
+			A = genotype:dirty_read({agent,Agent_Id}),
+			Morphology= (A#agent.constraint)#constraint.morphology,
+			io:format("Agent_Id:~p of morphology:~p with fitness:~p terminated.~n",[Agent_Id,Morphology,Fitness]),
+			Specie_Id = A#agent.specie_id,
+			Specie = genotype:dirty_read({specie,Specie_Id}),
+			Old_DeadPool_AgentSummaries = Specie#specie.dead_pool,
+			Old_Agent_Ids = Specie#specie.agent_ids,
+			[AgentSummary] = construct_AgentSummaries([Agent_Id],[]),
+			DeadPool_AgentSummaries = [AgentSummary|Old_DeadPool_AgentSummaries],
+			ProperlySorted_AgentSummaries = fitness_postprocessor:FitnessPostprocessorName(DeadPool_AgentSummaries),
+	
+			Valid_AgentSummaries = case length(ProperlySorted_AgentSummaries) >= S#state.specie_size_limit of
+				true ->
+					[{InvalidFitness,InvalidTotN,InvalidAgent_Id}|Remaining_AgentSummaries] = lists:reverse(ProperlySorted_AgentSummaries),
+%					io:format("Informationtheoretic Death:~p::~p~n",[InvalidAgent_Id,{InvalidFitness,InvalidTotN,InvalidAgent_Id}]),
+					genotype:delete_Agent(InvalidAgent_Id,safe),
+					lists:reverse(Remaining_AgentSummaries);
+				false ->
+					ProperlySorted_AgentSummaries
+			end,
+			io:format("Valid_AgentSummaries:~p~n",[Valid_AgentSummaries]),
+			{WinnerFitness,WinnerProfile,WinnerAgent_Id} = selection_algorithm:SelectionAlgorithmName(Valid_AgentSummaries),
+			ActiveAgent_IdP = case random:uniform() < 0.1 of
+				true ->
+					U_DeadPool_AgentSummaries = lists:delete({WinnerFitness,WinnerProfile,WinnerAgent_Id},Valid_AgentSummaries),
+					WinnerAgent_PId = Agent_PId = exoself:start(WinnerAgent_Id,self()),
+					{WinnerAgent_Id,WinnerAgent_PId};
+				false ->
+					U_DeadPool_AgentSummaries = Valid_AgentSummaries,
+					CloneAgent_Id = create_MutantAgentCopy(WinnerAgent_Id,safe),
+					CloneAgent_PId = exoself:start(CloneAgent_Id,self()),
+					{CloneAgent_Id,CloneAgent_PId}
+			end,
+			Top_AgentSummaries = lists:sublist(U_DeadPool_AgentSummaries,round(S#state.specie_size_limit*S#state.survival_percentage)),
+			{_,_,TopAgent_Ids} = lists:unzip3(lists:sublist(Top_AgentSummaries,3)),
+%			io:format("TopAgent_Ids:~p~n",[TopAgent_Ids]),
+			USpecie=genotype:dirty_read({specie,Specie_Id}),
+			genotype:write(USpecie#specie{dead_pool = U_DeadPool_AgentSummaries,champion_ids = TopAgent_Ids}),
+			ActiveAgent_IdPs = S#state.activeAgent_IdPs,
+			U_ActiveAgent_IdPs = [ActiveAgent_IdP|lists:keydelete(Agent_Id,1,ActiveAgent_IdPs)],
+			U_S=S#state{
+				activeAgent_IdPs=U_ActiveAgent_IdPs,
+				best_fitness=NewBestFitness
+			},
+			{noreply,U_S}
 	end;
-handle_cast({request,offspring,DX_Id},S)->
-	[DX] = mnesia:dirty_read({dx,DX_Id}),
-	DXClone_Id = create_MutantDXCopy(DX_Id,safe),
-%	io:format("WinnerDX:~p DXClone:~p~n",[mnesia:dirty_read({dx,WinnerDX_Id}),mnesia:dirty_read({dx,DXClone_Id})]),
-%	io:format("Newborn:~p::~p~n",[DXClone_Id,{WinnerFitness,WinnerProfile,WinnerDX_Id}]),
-	{ok,_PId} = exoself:start_link({S#state.op_mode,DXClone_Id,void_MaxTrials}),
-	Specie_Id = DX#dx.specie_id,
-	ActiveDXIds = get({active,Specie_Id}),
-	put({active,Specie_Id},[DXClone_Id|ActiveDXIds]),
-	{noreply,S};
-handle_cast({From,evaluations,Specie_Id,Evaluations},S)->
-	Evaluations_Acc = S#state.evaluations_acc,
+
+handle_cast({op_tag,pause},S) when S#state.op_tag == continue ->
+	U_S = S#state{op_tag = pause},
+	{noreply,U_S};
+%The population_monitor process accepts a pause command cast, which if it recieves, it then goes into pause mode after all the agents have completed with their evaluations. The process can only go into pause mode if it is currently in the continue mode (its op_tag is set to continue).
+
+handle_cast({op_tag,continue},S) when S#state.op_tag == pause ->
+	Population_Id = S#state.population_id,
+	OpMode = S#state.op_mode,
+	Agent_Ids = extract_AgentIds(Population_Id,all),
+	U_ActiveAgent_IdPs=summon_agents(OpMode,Agent_Ids),
+	TotAgents=length(Agent_Ids),
+	U_S=S#state{activeAgent_IdPs=U_ActiveAgent_IdPs,tot_agents=TotAgents,agents_left=TotAgents,op_tag=continue},
+	{noreply,U_S};
+%The population_monitor process can accept a continue command if its current op_tag is set to pause. When it receives a continue command, it summons all the agents in the population, and continues with its neuroevolution synchronization duties.
+
+handle_cast({From,evaluations,Specie_Id,AEA,AgentCycleAcc,AgentTimeAcc},S)->
+	AgentEvalAcc = case S#state.goal_reached of
+		true ->
+			0;
+		false ->
+			AEA
+	end,
+	Eval_Acc = S#state.eval_acc,
+	U_EvalAcc = S#state.eval_acc+AgentEvalAcc,
+	U_CycleAcc = S#state.cycle_acc+AgentCycleAcc,
+	U_TimeAcc = S#state.time_acc+AgentTimeAcc,
+	U_TotEvaluations = S#state.tot_evaluations + AgentEvalAcc,
 	SEval_Acc=get({evaluations,Specie_Id}),
-	put({evaluations,Specie_Id},SEval_Acc+Evaluations),
-%	io:format("+Evaluations:~p From:~p Tot_Evaluations:~p~n",[Evaluations,From,Evaluations_Acc]),
-	case Evaluations_Acc rem 50 of
+	put({evaluations,Specie_Id},SEval_Acc+AgentEvalAcc),
+	case Eval_Acc rem S#state.step_size of
 		0 ->
-			io:format("Tot_Evaluations:~p~n",[Evaluations_Acc]);
+			io:format("Evaluations/Step:~p~n",[Eval_Acc]);
 		_ ->
 			done
 	end,
-	U_EvaluationsAcc = Evaluations_Acc+Evaluations,
-	U_S=case S#state.survival_type of
-		_ ->%TODO:::TODO:::TODO:::TODO:::TODO:::
-			case U_EvaluationsAcc >= S#state.step_size of
-				true ->
-					gather_STATS(S#state.population_id,U_EvaluationsAcc),
-					update_PopulationChampions(S#state.population_id,U_EvaluationsAcc),
-					Population_Id = S#state.population_id,
-					[P] = mnesia:dirty_read({population,Population_Id}),
-					T = P#population.trace,
-					TotEvaluations=T#trace.tot_evaluations,
-					io:format("Evaluations:~p~n",[TotEvaluations]),
-					case TotEvaluations >= ?GOAL_EVALS of
-						true ->
-							gen_server:cast(monitor,{self(),goal_reached,void});
-						false ->
-							void
-					end,
-					S#state{evaluations_acc=0};
-				false ->
-					S#state{evaluations_acc=U_EvaluationsAcc}
-			end;
-		_ ->
-			case S#state.goal_status of
-				undefined ->
-					S#state{evaluations_acc=U_EvaluationsAcc};
-				reached ->
-					S
-			end
+	U_S=case U_EvalAcc >= S#state.step_size of
+		true ->
+			gather_STATS(S#state.population_id,U_EvalAcc,S#state.op_mode),
+			Population_Id = S#state.population_id,
+			P = genotype:dirty_read({population,Population_Id}),
+			T = P#population.trace,
+			TotEvaluations=T#trace.tot_evaluations,
+			io:format("Tot Evaluations:~p~n",[TotEvaluations]),
+			S#state{eval_acc=0, cycle_acc=0, time_acc=0, tot_evaluations=U_TotEvaluations};
+		false ->
+			S#state{eval_acc=U_EvalAcc,cycle_acc=U_CycleAcc,time_acc=U_TimeAcc,tot_evaluations=U_TotEvaluations}
 	end,
 	{noreply,U_S};
+
+handle_cast({_From,goal_reached},S)->
+	U_S=S#state{goal_reached=true},
+	{noreply,U_S};
+
 handle_cast({_From,print_TRACE},S)->
-%-record(trace,{stats=[],tot_evaluations=0,step_size=500,next_step=500}).
-%-record(stats,{avg_subcores=[],avg_neurons=[],avg_fitness=[],max_fitness=[],min_fitness=[],avg_diversity=[],evaluations=[],tot_evaluations=0,step_size=500,next_step=500}).
 	Population_Id = S#state.population_id,
-	[P] = mnesia:dirty_read({population,Population_Id}),
+	P = genotype:dirty_read({population,Population_Id}),
 	io:format("******** TRACE ********:~n~p~n",[P#population.trace]),
 	{noreply,S};
-handle_cast({From,goal_reached,Morphology},S)->
-	case S#state.goal_status of
-		undefined ->
-			benchmark ! {self(),goal_reached,S#state.evaluations_acc,S#state.attempt+1,get(diversity)},
-			{noreply,S#state{goal_status=reached}};
-		reached ->
-			{noreply,S}
-	end;
-handle_cast({op_tag,continue},S) ->
-	Population_Id = S#state.population_id,
-	OpMode = S#state.op_mode,
-	DX_Ids = extract_DXIds(Population_Id,all),
-	summon_dxs(OpMode,DX_Ids),
-	U_S = S#state{individuals_left = length(DX_Ids), op_tag = continue},
-	{noreply,U_S};
+
 handle_cast({init,InitState},_State)->
 	{noreply,InitState};
-handle_cast({op_tag,New_OpTag},S)->
-	io:format("Received new Op_Tag:~p~n",[New_OpTag]),
-	U_S = S#state{op_tag = New_OpTag},
-	{noreply,U_S};
 handle_cast({stop,normal},State)->
 	{stop, normal,State};
 handle_cast({stop,shutdown},State)->
@@ -394,23 +328,39 @@ handle_cast({stop,shutdown},State)->
 handle_info(_Info, State) ->
     {noreply, State}.
 
-%%--------------------------------------------------------------------
-%% Function: terminate(Reason, State) -> void()
-%% Description: This function is called by a gen_server when it is about to
-%% terminate. It should be the opposite of Module:init/1 and do any necessary
-%% cleaning up. When it returns, the gen_server terminates with Reason.
-%% The return value is ignored.
-%%--------------------------------------------------------------------
 terminate(Reason, S) ->
 	case S of
 		[] ->
 			io:format("******** Population_Monitor shut down with Reason:~p, with State: []~n",[Reason]);
 		_ ->
-			Population_Id = S#state.population_id,
-			OpTag = S#state.op_tag,
 			OpMode = S#state.op_mode,
-			io:format("******** Population_Monitor:~p shut down with Reason:~p OpTag:~p, while in OpMode:~p~n",[Population_Id,Reason,OpTag,OpMode])
+			OpTag = S#state.op_tag,
+			TotEvaluations=S#state.tot_evaluations,
+			Population_Id = S#state.population_id,
+			case TotEvaluations < 500 of
+				true ->%So that there is at least one stat in the stats list.
+					gather_STATS(Population_Id,0,OpMode);
+				false ->
+					ok
+			end,
+			P = genotype:dirty_read({population,Population_Id}),
+			T = P#population.trace,
+			U_T = T#trace{tot_evaluations=TotEvaluations},
+			U_P = P#population{trace=U_T},
+			genotype:write(U_P),
+			io:format("******** TRACE START ********~n"),
+			io:format("~p~n",[U_T]),
+			io:format("******** ^^^^ TRACE END ^^^^ ********~n"),
+			io:format("******** Population_Monitor:~p shut down with Reason:~p OpTag:~p, while in OpMode:~p~n",[Population_Id,Reason,OpTag,OpMode]),
+			io:format("******** Tot Agents:~p Population Generation:~p Tot_Evals:~p~n",[S#state.tot_agents,S#state.pop_gen,S#state.tot_evaluations]),
+			case S#state.benchmarker_pid of
+				undefined ->
+					ok;
+				PId ->
+					PId ! {S#state.population_id,completed,U_T}
+			end
 	end.
+%When the population_monitor process terminates, it states so, notifies with what op_tag and op_mode it terminated, all the stats gathered, and then shuts down.
 
 %%--------------------------------------------------------------------
 %% Func: code_change(OldVsn, State, Extra) -> {ok, NewState}
@@ -420,541 +370,225 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %%--------------------------------------------------------------------
-%%% Internal functions
+%% Internal functions
 %%--------------------------------------------------------------------
-extract_DXIds(Population_Id,CitizenType)->
-	[P] = mnesia:dirty_read({population,Population_Id}),
+extract_AgentIds(Population_Id,AgentType)->
+	P = genotype:dirty_read({population,Population_Id}),
 	Specie_Ids = P#population.specie_ids,
-%	io:format("Specie_Ids:~p~n",[Specie_Ids]),
-	case CitizenType of
-		top ->
-			extract_TopDXIds(Specie_Ids,[]);
+	%io:format("Specie_Ids:~p~n",[Specie_Ids]),
+	case AgentType of
 		champions ->
-			extract_ChampionDXIds(Specie_Ids,[]);
+			extract_ChampionAgentIds(Specie_Ids,[]);
 		all ->
-			extract_AllDXIds(Specie_Ids,[])
+			extract_AllAgentIds(Specie_Ids,[])
 	end.
-	
-	extract_AllDXIds([Specie_Id|Specie_Ids],Acc)->
-		[S] = mnesia:dirty_read({specie,Specie_Id}),
-		DX_Ids = S#specie.dx_ids,
-		extract_AllDXIds(Specie_Ids,lists:append(DX_Ids,Acc));
-	extract_AllDXIds([],Acc)->
-%		io:format("DX_Ids:~p~n",[Acc]),
-		Acc.
+%The extract_AgentIds/2 function accepts the Population_Id and a parameter which specifies what type of agents (all agent ids, or just those of the champions) to extract from the population, after which it extracts those agents. Depending on the AgentType parameter, the function either calls extract_ChampionAgentIds/2 or extract_AllAgentIds/2, which return the list of agent ids to the caller.
 
-	extract_TopDXIds([Specie_Id|Specie_Ids],Acc)->
-		[S] = mnesia:dirty_read({specie,Specie_Id}),
-		TopDX_Ids = S#specie.topdx_ids,
-		extract_TopDXIds(Specie_Ids,lists:append(TopDX_Ids,Acc));
-	extract_TopDXIds([],Acc)->
+	extract_ChampionAgentIds([Specie_Id|Specie_Ids],Acc)->
+		S = genotype:dirty_read({specie,Specie_Id}),
+		ChampionAgent_Ids = S#specie.champion_ids,
+		extract_ChampionAgentIds(Specie_Ids,lists:append(ChampionAgent_Ids,Acc));
+	extract_ChampionAgentIds([],Acc)->
 		Acc.
+%extract_ChampionAgentIds/2 accumulates the ids of champion agents from every specie in the Specie_Ids list, and then returns that list to the caller.
 	
-	extract_ChampionDXIds([Specie_Id|Specie_Ids],Acc)->
-		[S] = mnesia:dirty_read({specie,Specie_Id}),
-		ChampionDX_Idps = S#specie.championdx_ids,
-		ChampionDX_Ids=[ChampionDX_Id || {_AncestorDX_Id,ChampionDX_Id}<-ChampionDX_Idps],
-		extract_ChampionDXIds(Specie_Ids,lists:append(ChampionDX_Ids,Acc));
-	extract_ChampionDXIds([],Acc)->
+	extract_AllAgentIds([Specie_Id|Specie_Ids],Acc)->
+		extract_AllAgentIds(Specie_Ids,lists:append(extract_SpecieAgentIds(Specie_Id),Acc));
+	extract_AllAgentIds([],Acc)->
 		Acc.
-	
-extract_SpecieDXIds(Specie_Id)->
-	[S] = mnesia:dirty_read({specie,Specie_Id}),
-	S#specie.dx_ids.
+%extract_AllAgentIds/2 accumulates and returns to the caller an id list of all the agents belonging to the species in the Specie_Ids list.
+		
+extract_SpecieAgentIds(Specie_Id)->
+	S = genotype:dirty_read({specie,Specie_Id}),
+	S#specie.agent_ids.
+%extract_SpecieAgentIds/1 returns a list of agent ids to the caller.
 
-summon_specie(OpMode,Specie_Id)->
-	[S] = mnesia:dirty_read({specie,Specie_Id}),
-	DX_Ids = S#specie.dx_ids,
-	Active_DXPs = summon_dxs(OpMode,DX_Ids,[]),
-%	mnesia:dirty_write(S#specie{active=Active_DXs}).
-	DX_Ids.
-
-summon_dxs(OpMode,DX_Ids)->
-	summon_dxs(OpMode,DX_Ids,[]).
-	
-summon_dxs(OpMode,[DX_Id|DX_Ids],Acc)->
-%	io:format("DX_Id:~p~n",[DX_Id]),
-	{ok,DX_PId} = exoself:start_link({OpMode,DX_Id,get(max_trials)}),
-	summon_dxs(OpMode,DX_Ids,[{DX_Id,DX_PId}|Acc]);
-summon_dxs(_OpMode,[],Acc)->
+summon_agents(OpMode,Agent_Ids)->
+	summon_agents(OpMode,Agent_Ids,[]).
+summon_agents(OpMode,[Agent_Id|Agent_Ids],Acc)->
+%	io:format("Agent_Id:~p~n",[Agent_Id]),
+	Agent_PId = exoself:start(Agent_Id,self()),
+	summon_agents(OpMode,Agent_Ids,[{Agent_Id,Agent_PId}|Acc]);
+summon_agents(_OpMode,[],Acc)->
 	Acc.
+%The summon_agents/2 and summon_agents/3 spawns all the agents in the Agent_ids list, and returns to the caller a list of tuples as follows: [{Agent_Id,Agent_PId}...].
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-info(list_ids)->
-	lists:map(fun(Key)-> io:format("Population Id:~p~n",[Key]) end, mnesia:dirty_all_keys(population)).
-new()->
-	done.
-reset()->
-	done.
-backup()->
-	done.
-	
-championship()->
-	population_monitor:start({championship,?INIT_POPULATION_ID}).
-champion()->
-	population_monitor:start({champion,?INIT_POPULATION_ID}).
-%--------------------------------Generate Initial Population--------------------------------
-%%%Notes: Generates a population of a specific size, utilizing random number of output vector lengths, number of output vectors, and the same for inputs
-%%%Function: Generates population of specified size of diverse Entities. Generates a predifined number of Individuals, marking every file with the DX_Id 
-% of the individual, and saving the list of DX_DIds in the "Info" file
-%%%Interface:Input:(PopSize:S) Output:[DX_Id1,DX_Id2...DX_Idn]
-%%%MsgComunication: N/A
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 test()->
-	init_population({?INIT_POPULATION_ID,?INIT_CONSTRAINTS,?OP_MODE,?SURVIVAL_TYPE}).
-init_population({Population_Id,Specie_Constraints,OpMode,Survival_Type})->
-	{A,B,C} = now(),
-	random:seed(A,B,C),
+	init_population(#state{op_mode = benchmark},?INIT_CONSTRAINTS).
+%The test/0 function starts the population monitor through init_population/1 with a set of default parameters specified by the macros of this module.
+
+prep_PopState(PMP,Specie_Constraints)->
+	S=#state{
+		op_mode=PMP#pmp.op_mode,
+		population_id = PMP#pmp.population_id,
+		survival_percentage=PMP#pmp.survival_percentage,
+		specie_size_limit=PMP#pmp.specie_size_limit,
+		init_specie_size=PMP#pmp.init_specie_size,
+		polis_id=PMP#pmp.polis_id,
+		generation_limit=PMP#pmp.generation_limit,
+		evaluations_limit=PMP#pmp.evaluations_limit,
+		fitness_goal=PMP#pmp.fitness_goal,
+		benchmarker_pid=PMP#pmp.benchmarker_pid
+	},
+	init_population(S,Specie_Constraints).
+
+init_population(Init_State,Specie_Constraints)->
+	random:seed(now()),
+	Population_Id = Init_State#state.population_id,
+	%OpMode = Init_State#state.op_mode,
 	F = fun()->
-		case mnesia:read({population,Population_Id}) of
-			[] ->
-				create_Population(Population_Id,Specie_Constraints);
+		case genotype:read({population,Population_Id}) of
+			undefined ->
+				create_Population(Population_Id,Init_State#state.init_specie_size,Specie_Constraints);
 			_ ->
 				delete_population(Population_Id),
-				create_Population(Population_Id,Specie_Constraints)
+				create_Population(Population_Id,Init_State#state.init_specie_size,Specie_Constraints)
 		end
 	end,
 	Result = mnesia:transaction(F),
 	case Result of
 		{atomic,_} ->
-			population_monitor:start({OpMode,Population_Id,Survival_Type});
+			population_monitor:start(Init_State);
 		Error ->
 			io:format("******** ERROR in PopulationMonitor:~p~n",[Error])
 	end.
+%The function init_population/1 creates a new population with the id Population_Id, composed of length(Specie_Constraints) species, where each specie uses the particular specie constraint specified within the Specie_Constraints list. The function first checks if a population with the noted Population_Id already exists, if a population does exist, then the function first delets it, and then creates a fresh one. Since the ids are usually generated with the genotype:create_UniqueId/0, the only way an already existing Population_Id is dropped into the function as a parameter is if it is intended, usually when runing tests, with the Population_Id = test.
 
-	create_Population(Population_Id,Specie_Constraints)->%Link_Form,Morphologies)->
-		%TotSpecies = ?TOT_INIT_SPECIES,
-		SpecieSize = ?INIT_SPECIE_SIZE,
-		Polis_Id = ?INIT_POLIS,
-		Specie_Ids = [create_Specie(Population_Id,technome_constructor:generate_UniqueId(),SpecieSize,[],SpecCon) || SpecCon <- Specie_Constraints],
+	create_Population(Population_Id,SpecieSize,Specie_Constraints)->
+		Specie_Ids = [create_specie(Population_Id,SpecCon,origin,SpecieSize) || SpecCon <- Specie_Constraints],
+		[C|_]=Specie_Constraints,
 		Population = #population{
 			id = Population_Id,
 			specie_ids = Specie_Ids,
-			polis_id = Polis_Id,
-			evo_strat = specie_evo_strat:init()},
-		mnesia:write(Population).
-			
-		create_Specie(Population_Id,Specie_Id,0,IdAcc,SpeCon)->
+			evo_alg_f = C#constraint.population_evo_alg_f,
+			fitness_postprocessor_f = C#constraint.population_fitness_postprocessor_f,
+			selection_f = C#constraint.population_selection_f
+		},
+		genotype:write(Population).
+
+		create_specie(Population_Id,SpeCon,Fingerprint)->
+			Specie_Id = genotype:generate_UniqueId(),
+			create_specie(Population_Id,Specie_Id,0,[],SpeCon,Fingerprint).
+		create_specie(Population_Id,SpeCon,Fingerprint,SpecieSize)->
+			Specie_Id = genotype:generate_UniqueId(),
+			create_specie(Population_Id,Specie_Id,SpecieSize,[],SpeCon,Fingerprint).
+		create_specie(Population_Id,Specie_Id,0,IdAcc,SpeCon,Fingerprint)->
 			io:format("Specie_Id:~p Morphology:~p~n",[Specie_Id,SpeCon#constraint.morphology]),
 			Specie = #specie{
 				id = Specie_Id,
-				morphology = SpeCon#constraint.morphology,
+				population_id = Population_Id,
+				fingerprint = Fingerprint,
 				constraint = SpeCon,
-				dx_ids = IdAcc,
-				population_id = Population_Id
+				agent_ids = IdAcc
 			},
-%			io:format("Specie:~p~n",[Specie]),
-			mnesia:write(Specie),
+			genotype:write(Specie),
 			Specie_Id;
-		create_Specie(Population_Id,SpecieId,Citizen_Index,IdAcc,SpeCon)->
-			DX_Id = float_to_list(technome_constructor:generate_UniqueId()),
-			modular_constructor:construct_DX(SpecieId,DX_Id,SpeCon),
-			create_Specie(Population_Id,SpecieId,Citizen_Index-1,[DX_Id|IdAcc],SpeCon).
+		create_specie(Population_Id,Specie_Id,Agent_Index,IdAcc,SpeCon,Fingerprint)->
+			Agent_Id = {genotype:generate_UniqueId(),agent},
+			genotype:construct_Agent(Specie_Id,Agent_Id,SpeCon),
+			create_specie(Population_Id,Specie_Id,Agent_Index-1,[Agent_Id|IdAcc],SpeCon,Fingerprint).
+%The create_Population/3 generates length(Specie_Constraints) number of specie, each composed of ?INIT_SPECIE_SIZE number of agents. The function uses the create_specie/4 to generate the species. The create_specie/3 and create_specie/4 functions are simplified versions which use default parameters to call the create_specie/6 function. The create_specie/6 function constructs the agents using the genotype:construct_Agent/3 function, accumulating the Agent_Ids in the IdAcc list. Once all the agents have been created, the function creates the specie record, fills in the required elements, writes the specie to database, and then finally returns the Specie_Id to the caller.
 
-continue(OpMode,Survival_Type)->
+continue(OpMode,Selection_Algorithm)->
 	Population_Id = test,
-	conform_SpecieSize(Population_Id),
-	population_monitor:start({OpMode,Population_Id,Survival_Type}).
+	population_monitor:start({OpMode,Population_Id,Selection_Algorithm}).
+continue(OpMode,Selection_Algorithm,Population_Id)->
+	population_monitor:start({OpMode,Population_Id,Selection_Algorithm}).
+%The function continue/2 and continue/3 are used to summon an already existing population with Population_Id, and continue with the experiment using the Selection_Algorithm.
 
-%--------------------------------Evolve Top Technomes--------------------------------
-%%%Notes: Species
-%%%Function: 
-%%%Interface:Input:() Output:
-%%%MsgComunication: N/A
-mutate_population(Population_Id,KeepTot,Survival_Type)->
+mutate_population(Population_Id,KeepTot,Fitness_Postprocessor,Selection_Algorithm)->
 	NeuralEnergyCost = calculate_EnergyCost(Population_Id),
 	F = fun()->
-		[P] = mnesia:read({population,Population_Id}),
+		P = genotype:read({population,Population_Id}),
 		Specie_Ids = P#population.specie_ids,
-		[mutate_Specie(Specie_Id,KeepTot,NeuralEnergyCost,Survival_Type) || Specie_Id <- Specie_Ids]
+		[mutate_Specie(Specie_Id,KeepTot,NeuralEnergyCost,Fitness_Postprocessor,Selection_Algorithm) || Specie_Id <- Specie_Ids]
 	end,
 	{atomic,_} = mnesia:transaction(F).
-	
-	mutate_Specie(Specie_Id,PopulationLimit,NeuralEnergyCost,Survival_Type)->
-		[S] = mnesia:read({specie,Specie_Id}),
-		DX_Ids = S#specie.dx_ids,
-		Sorted_DXSummaries = lists:reverse(lists:sort(extract_DXSummaries(DX_Ids,[]))),
-		io:format("Survival_Type:~p~n",[Survival_Type]),
-		case Survival_Type of
-			competition ->
-				TotSurvivors = round(length(Sorted_DXSummaries)*?SURVIVAL_PERCENTAGE),
-				SDX=lists:reverse(lists:sort([{Fitness/math:pow(TotN,?EFF),{Fitness,[A,B,TotN],DX_Id}}||{Fitness,[A,B,TotN],DX_Id}<-Sorted_DXSummaries])),
-				ProperlySorted_DXSummaries = [Val || {_,Val}<-SDX],
-				
-%				ProperlySorted_DXSummaries = Sorted_DXSummaries,
-				
-				Valid_DXSummaries = lists:sublist(ProperlySorted_DXSummaries,TotSurvivors),
-				Invalid_DXSummaries = Sorted_DXSummaries -- Valid_DXSummaries,
-				{_,_,Invalid_DXIds} = unzip3(Invalid_DXSummaries),
-				[delete_dx(DX_Id) || DX_Id <- Invalid_DXIds],
-				io:format("Valid_DXSummaries:~p~n",[Valid_DXSummaries]),
-				io:format("Invalid_DXSummaries:~p~n",[Invalid_DXSummaries]),
-				
-				TopDXSummaries = lists:sublist(Valid_DXSummaries,3),
-				{_,_,TopDX_Ids} = unzip3(TopDXSummaries),
-				io:format("NeuralEnergyCost:~p~n",[NeuralEnergyCost]),
-				NewGenDX_Ids = competition(Valid_DXSummaries,PopulationLimit,NeuralEnergyCost);
-			top3 ->
-				TotSurvivors = 3,
-				ProperlySorted_DXSummaries = Sorted_DXSummaries,
-				Valid_DXSummaries = lists:sublist(ProperlySorted_DXSummaries,TotSurvivors),
-				Invalid_DXSummaries = Sorted_DXSummaries -- Valid_DXSummaries,
-				{_,_,Invalid_DXIds} = unzip3(Invalid_DXSummaries),
-				{_,_,Valid_DXIds} = unzip3(Valid_DXSummaries),
-				[delete_dx(DX_Id) || DX_Id <- Invalid_DXIds],
-				io:format("Valid_DXSummaries:~p~n",[Valid_DXSummaries]),
-				io:format("Invalid_DXSummaries:~p~n",[Invalid_DXSummaries]),
-				TopDXSummaries = lists:sublist(Valid_DXSummaries,3),
-				{_,_,TopDX_Ids} = unzip3(TopDXSummaries),
-				io:format("NeuralEnergyCost:~p~n",[NeuralEnergyCost]),
-				NewGenDX_Ids = top3(Valid_DXIds,PopulationLimit-TotSurvivors,[])
+%The function mutate_population/3 mutates the agents within every specie in its specie_ids list, maintianing each specie within the size of KeepTot. The function first calculates the average cost of each neuron, and then calls each specie seperately with the Fitness_Postprocessor and Selection_Algorithm parameters, which are used to mutate the species.
+
+	mutate_Specie(Specie_Id,PopulationLimit,NeuralEnergyCost,Fitness_Postprocessor_Name,Selection_Algorithm_Name)->
+		S = genotype:dirty_read({specie,Specie_Id}),
+		{AvgFitness,Std,MaxFitness,MinFitness} = calculate_SpecieFitness({specie,S}),
+		Agent_Ids = S#specie.agent_ids,
+		Sorted_AgentSummaries = lists:reverse(lists:sort(construct_AgentSummaries(Agent_Ids,[]))),
+		io:format("Using: Fitness Postprocessor:~p Selection Algorirthm:~p~n",[Fitness_Postprocessor_Name,Selection_Algorithm_Name]),
+		ProperlySorted_AgentSummaries = fitness_postprocessor:Fitness_Postprocessor_Name(Sorted_AgentSummaries),
+		{NewGenAgent_Ids,TopAgent_Ids} = selection_algorithm:Selection_Algorithm_Name(ProperlySorted_AgentSummaries,NeuralEnergyCost,PopulationLimit),
+		{FList,_TNList,_AgentIds}=lists:unzip3(ProperlySorted_AgentSummaries),
+		[TopFitness|_] = FList,
+		{Factor,Fitness}=S#specie.innovation_factor,
+		U_InnovationFactor = case TopFitness > Fitness of
+			true ->
+				{0,TopFitness};
+			false ->
+				{Factor-1,Fitness}
 		end,
-%		io:format("Top Id:~p Top Ids:~p Sorted_DXSummaries:~p~n",[TopDX_Id,TopDX_Ids,Sorted_DXSummaries]),
-		Diversity = calculate_diversity(NewGenDX_Ids),
-		case get(diversity) of
-			undefined->
-				put(diversity,[Diversity]);
-			PrevGenDiversity ->
-				put(diversity,[Diversity|PrevGenDiversity])
-		end,
-		[TopDX_Id|_] = TopDX_Ids,
-		ChampionDX_Idps = S#specie.championdx_ids,
-		U_ChampionDX_Idps=case lists:keymember(TopDX_Id,1,ChampionDX_Idps) of
-			true -> 
-				ChampionDX_Idps;
-			false->
-				ChampionDX_Id = clone_dx(TopDX_Id),
-				%case length(ChampionDX_Idps) >= 10 of
-				%	true ->
-				%		Valid_ChampionDX_Idps = lists:sublist([{TopDX_Id,ChampionDX_Id}|ChampionDX_Idps],10),
-				%		Invalid_ChampionDX_Idps =  [{TopDX_Id,ChampionDX_Id}|ChampionDX_Idps] -- Valid_ChampionDX_Idps,
-				%		[delete_dx(Invalid_ChampionDX_Id)|| {_OriginalDX_Id,Invalid_ChampionDX_Id}<-Invalid_ChampionDX_Idps],
-				%		Valid_ChampionDX_Idps;
-				%	false ->
-				%		[{TopDX_Id,ChampionDX_Id}|ChampionDX_Idps]
-				%end
-				[{TopDX_Id,ChampionDX_Id}|ChampionDX_Idps]
-		end,
-		mnesia:write(S#specie{
-			dx_ids = NewGenDX_Ids,
-			topdx_ids = TopDX_Ids,
-			championdx_ids = U_ChampionDX_Idps}).
-		
-		extract_DXSummaries([DX_Id|DX_Ids],Acc)->
-			[DX] = mnesia:read({dx,DX_Id}),
-			Fitness = DX#dx.fitness,
-			Profile = DX#dx.profile,
-			Summary = {Fitness,Profile,DX_Id},
-			extract_DXSummaries(DX_Ids,[Summary|Acc]);
-		extract_DXSummaries([],Acc)->
-			Acc.
+		genotype:write(S#specie{
+			agent_ids = NewGenAgent_Ids,
+			champion_ids = [genotype:clone_Agent(TopAgent_Id)||TopAgent_Id <-TopAgent_Ids],
+			fitness = {AvgFitness,Std,MaxFitness,MinFitness},
+			innovation_factor = U_InnovationFactor}).
+%The function mutate_Specie/5 calls the selection algorithm function to seperate the fit from the unfit organisms in the specie, and then mutates the fit organisms to produce offspring, maintaning the total specie size within PopulationLimit. The function first calls the fitness_postprocessor which sorts the agent summaries. Then, the resorted updated summaries are split into a valid (fit) and invalid (unfit) lists of agents by the selection algorithm. The invalid agents are deleted, and the valid agents are used to create offspring using the particular Selection_Algorithm_Name function. The agent ids belonging to the next generation (the valid agents and their offspring) are then produced by the selection function. Finally, the innovation factor (the last time the specie's top fitness improved) is updated, the ids of the 3 top agents within the species are noted, and the updated specie record is written to database.
+
+	construct_AgentSummaries([Agent_Id|Agent_Ids],Acc)->
+		A = genotype:dirty_read({agent,Agent_Id}),
+		construct_AgentSummaries(Agent_Ids,[{A#agent.fitness,length((genotype:dirty_read({cortex,A#agent.cx_id}))#cortex.neuron_ids),Agent_Id}|Acc]);
+	construct_AgentSummaries([],Acc)->
+		Acc.
+%The construct_AgentSummaries/2 reads the agents in the Agent_Ids list, and composes a list of tuples of the following format: [{AgentFitness,AgentTotNeurons,Agent_Id}...]. This list of tuples is reffered to as AgentSummaries. Once the AgentSummaries list is composed, it is returned to the caller.
+
+	create_MutantAgentCopy(Agent_Id)->
+		AgentClone_Id = genotype:clone_Agent(Agent_Id),
+		io:format("AgentClone_Id:~p~n",[AgentClone_Id]),
+		genome_mutator:mutate(AgentClone_Id),
+		AgentClone_Id.
+%The create_MutantAgentCopy/1 first creates a clone of the Agent_Id, and then uses the genome_mutator:mutate/1 function to mutate that clone, returning the id of the cloned agent to the caller.
 				
-		extract_TopDX([DX_Summary|Sorted_DXSummaries],KeepTot)->
-			{Fitness,Profile,TopDX_Id} = DX_Summary,
-			io:format("Top Fitness:~p Top Profile:~p TopDX_Id:~p~n",[Fitness,Profile,TopDX_Id]),
-			{FitnessAcc,Diversified_TopIdsP} = diversify([Profile],Sorted_DXSummaries,KeepTot-1,[{Fitness,TopDX_Id}],Fitness,[]),
-			{FitnessAcc,Diversified_TopIdsP}.
+	create_MutantAgentCopy(Agent_Id,safe)->%TODO
+		A = genotype:dirty_read({agent,Agent_Id}),
+		S = genotype:dirty_read({specie,A#agent.specie_id}),
+		AgentClone_Id = genotype:clone_Agent(Agent_Id),
+		Agent_Ids = S#specie.agent_ids,
+		genotype:write(S#specie{agent_ids = [AgentClone_Id|Agent_Ids]}),
+		io:format("AgentClone_Id:~p~n",[AgentClone_Id]),
+		genome_mutator:mutate(AgentClone_Id),
+		AgentClone_Id.
+%The create_MutantAgentCopy/2 is similar to arity 1 function of the same name, but it also adds the id of the cloned mutant agent to the specie record to which the original belonged. The specie with its updated agent_ids is then written to database, and the id of the mutant clone is returned to the caller.
 
-			diversify(_TopProfiles,_Sorted_DXSummaries,0,TopDIdsAcc,FitnessAcc,_Acc)->
-				{FitnessAcc,lists:reverse(TopDIdsAcc)};
-			diversify(TopProfiles,[{Fitness,Profile,DX_Id}|Sorted_DXSummaries],KeepTot,TopIdsAcc,FitnessAcc,Acc)->
-				case compare_profiles(TopProfiles,Profile) of
-					true->
-						diversify([Profile|TopProfiles],Sorted_DXSummaries,KeepTot-1,[{Fitness,DX_Id}|TopIdsAcc],FitnessAcc+Fitness,Acc);
-					false ->
-						diversify(TopProfiles,Sorted_DXSummaries,KeepTot,TopIdsAcc,FitnessAcc,[DX_Id|Acc])
-				end;
-			diversify(_TopProfiles,[],KeepTot,TopIdsAcc,FitnessAcc,Acc)->
-				Remaining_SortedIds = lists:reverse(Acc),
-				Remaining_TopIds = lists:sublist(Remaining_SortedIds,KeepTot),
-				{FitnessAcc,lists:append(lists:reverse(TopIdsAcc),[])}.
-			
-				compare_profiles([TopProfile|TopProfiles],Profile)->
-					case TopProfile == Profile of
-						true ->
-							false;
-						false ->
-							compare_profiles(TopProfiles,Profile)
-					end;
-				compare_profiles([],_Profile)->
-					true.
-
-	competition(Sorted_DXSummaries,PopulationLimit,NeuralEnergyCost)->
-		{AlotmentsP,NextGenSize_Estimate} = calculate_alotments(Sorted_DXSummaries,NeuralEnergyCost,[],0),
-		Normalizer = NextGenSize_Estimate/PopulationLimit,
-		io:format("Normalizer:~p~n",[Normalizer]),
-		gather_survivors(AlotmentsP,Normalizer,[]).
-		
-		calculate_alotments([{Fitness,Profile,DX_Id}|Sorted_DXSummaries],NeuralEnergyCost,Acc,NewPopAcc)->
-			[_TotSubstrates,_TotSubCores,TotNeurons] = Profile,
-			NeuralAlotment = Fitness/NeuralEnergyCost,
-			MutantAlotment = NeuralAlotment/TotNeurons,
-			U_NewPopAcc = NewPopAcc+MutantAlotment,%+case round(MutantAlotment) >= 1 of
-								%	true -> 1;
-								%	false -> 0
-								%end,
-			calculate_alotments(Sorted_DXSummaries,NeuralEnergyCost,[{MutantAlotment,Fitness,Profile,DX_Id}|Acc],U_NewPopAcc);
-		calculate_alotments([],_NeuralEnergyCost,Acc,NewPopAcc)->
-			io:format("NewPopAcc:~p~n",[NewPopAcc]),
-			{Acc,NewPopAcc}.
-
-		gather_survivors([{MutantAlotment,Fitness,Profile,DX_Id}|AlotmentsP],Normalizer,Acc)->
-			Normalized_MutantAlotment = round(MutantAlotment/Normalizer),
-			io:format("DX_Id:~p Normalized_MutantAlotment:~p~n",[DX_Id,Normalized_MutantAlotment]),
-			SurvivingDX_Ids = case Normalized_MutantAlotment >= 1 of
-				true ->
-					MutantDX_Ids = case Normalized_MutantAlotment >= 2 of
-						true ->
-							[create_MutantDXCopy(DX_Id)|| _ <-lists:seq(1,Normalized_MutantAlotment-1)];
-						false ->
-							[]
-					end,
-					[DX_Id|MutantDX_Ids];
-				false ->
-					io:format("deleting DX:~p~n",[DX_Id]),
-					delete_dx(DX_Id),
-					[]
-			end,
-			gather_survivors(AlotmentsP,Normalizer,lists:append(SurvivingDX_Ids,Acc));
-		gather_survivors([],_Normalizer,Acc)->
-			io:format("New Population:~p PopSize:~p~n",[Acc,length(Acc)]),
-			Acc.
-
-		create_MutantDXCopy(DX_Id)->
-			CloneDX_Id = clone_dx(DX_Id),
-			io:format("CloneDX_Id:~p~n",[CloneDX_Id]),
-			technome_mutator:mutate(CloneDX_Id),
-			CloneDX_Id.
-			
-			clone_dx(DX_Id)->
-				CloneDX_Id = float_to_list(technome_constructor:generate_UniqueId()),
-				technome_constructor:clone_dx(DX_Id,CloneDX_Id),
-				CloneDX_Id.
-				
-		create_MutantDXCopy(DX_Id,safe)->%TODO
-			[DX] = mnesia:dirty_read({dx,DX_Id}),
-			[Specie] = mnesia:dirty_read({specie,DX#dx.specie_id}),
-			CloneDX_Id = clone_dx(DX_Id),
-			DX_Ids = Specie#specie.dx_ids,
-			mnesia:dirty_write(Specie#specie{dx_ids = [CloneDX_Id|DX_Ids]}),
-			io:format("CloneDX_Id:~p~n",[CloneDX_Id]),
-			technome_mutator:mutate(CloneDX_Id),
-			CloneDX_Id.
-
-top3(Valid_DXIds,0,Acc)->
-	Acc;
-top3(Valid_DXIds,OffspringIndex,Acc)->%TODO
-	Parent_DXId = lists:nth(random:uniform(length(Valid_DXIds)),Valid_DXIds),
-	MutantDX_Id = create_MutantDXCopy(Parent_DXId),
-	top3(Valid_DXIds,OffspringIndex-1,[MutantDX_Id|Acc]).
-
-choose_CompetitionWinner([{_MutantAlotment,Fitness,Profile,DX_Id}],_Index,_Acc)->%TODO: Does this really work?
-	{Fitness,Profile,DX_Id};
-choose_CompetitionWinner([{MutantAlotment,Fitness,Profile,DX_Id}|AlotmentsP],Index,Acc)->
-	case (Index > Acc) and (Index =< Acc+MutantAlotment) of
-		true ->
-			{Fitness,Profile,DX_Id};
-		false ->
-			choose_CompetitionWinner(AlotmentsP,Index,Acc+MutantAlotment)
-	end.
-	
 delete_population(Population_Id)->
-	[P] = mnesia:read({population,Population_Id}),
+	P = genotype:dirty_read({population,Population_Id}),
 	Specie_Ids = P#population.specie_ids,
 	[delete_specie(Specie_Id) || Specie_Id <- Specie_Ids],
 	mnesia:delete({population,Population_Id}).
+%The delete_population/1 function delets the entire population, by deleting the specie records belonging to the Population_Id, deleting the agent records belonging to those species, and then deleting the population record itself.
 	
 	delete_specie(Specie_Id)->
-		[S] = mnesia:read({specie,Specie_Id}),
-		DX_Ids = S#specie.dx_ids,
-		ChampionDX_Ids = S#specie.championdx_ids,
-		[delete_dx(DX_Id) || DX_Id <- DX_Ids],
-		%[delete_dx(ChampionDX_Id) || {_AncestorDX_Id,ChampionDX_Id} <- ChampionDX_Ids],%TODO: Now we keep the champions...
+		S = genotype:dirty_read({specie,Specie_Id}),
+		Agent_Ids = S#specie.agent_ids,
+		[genotype:delete_Agent(Agent_Id) || Agent_Id <- Agent_Ids],
 		mnesia:delete({specie,Specie_Id}).
-		
-		delete_dx(DX_Id)->
-			io:format("Delete_DX(DX_Id):~p~n",[DX_Id]),
-			technome_constructor:delete_dx(DX_Id).
-			
-		delete_dx(DX_Id,safe)->
-			F = fun()->
-				[DX] = mnesia:read({dx,DX_Id}),
-				[Specie] = mnesia:read({specie,DX#dx.specie_id}),
-				DX_Ids = Specie#specie.dx_ids,
-				DeadPool = Specie#specie.dead_pool,
-				mnesia:write(Specie#specie{dx_ids = lists:delete(DX_Id,DX_Ids),dead_pool=lists:keydelete(DX_Id,3,DeadPool)}),
-				technome_constructor:delete_dx(DX_Id)
-			end,
-			Result=mnesia:transaction(F),
-			io:format("Delete_DX(DX_Id,safe):~p Result:~p~n",[DX_Id,Result]).
-			
-unzip3(List)->
-	unzip3(List,[],[],[]).
-unzip3([{Val1,Val2,Val3}|List],Acc1,Acc2,Acc3)->
-	unzip3(List,[Val1|Acc1],[Val2|Acc2],[Val3|Acc3]);
-unzip3([],Acc1,Acc2,Acc3)->
-	{lists:reverse(Acc1),lists:reverse(Acc2),lists:reverse(Acc3)}.
+%The delete_specie/1 function delets the agents associated with the Specie_Id, and then delets the specie record itself.
 			
 calculate_EnergyCost(Population_Id)->
-	DX_Ids = extract_DXIds(Population_Id,all),
-	TotEnergy = lists:sum([extract_DXFitness(DX_Id) || DX_Id<-DX_Ids]),
-	TotNeurons = lists:sum([extract_DXTotNeurons(DX_Id) || DX_Id <- DX_Ids]),
+	Agent_Ids = extract_AgentIds(Population_Id,all),
+	TotEnergy = lists:sum([extract_AgentFitness(Agent_Id) || Agent_Id<-Agent_Ids]),
+	TotNeurons = lists:sum([extract_AgentTotNeurons(Agent_Id) || Agent_Id <- Agent_Ids]),
 	EnergyCost = TotEnergy/TotNeurons,
 	EnergyCost.
-	
-	extract_DXTotNeurons(DX_Id)->
-		[DX] = mnesia:dirty_read({dx,DX_Id}),
-		Summary = DX#dx.summary,
-		%{value,{tot_neurons,Tot_Neurons}} = lists:keysearch(tot_neurons, 1, Summary),
-		Tot_Neurons = Summary#summary.tot_neurons,
-%		io:format("Tot_Neurons:~p~n",[Tot_Neurons]),
-		Tot_Neurons.
-	
-	extract_DXFitness(DX_Id)->
-		[DX] = mnesia:dirty_read({dx,DX_Id}),
-%		io:format("Fitness:~p~n",[DX#dx.fitness]),
-		DX#dx.fitness.
-		
-calculate_MaxTrials(DX_Ids)->
-	Tot_DXs = length(DX_Ids),
-	CurGen_PopNWeights = calculate_CurGenPopNWeights(DX_Ids,0),
-	Avg_CurGenPopNWeights = round(CurGen_PopNWeights/Tot_DXs),
-	Max_Trials = 10 + functions:sat(round(math:sqrt(Avg_CurGenPopNWeights)),100,0),
-%	Max_Trials = Avg_CurGenPopNWeights*2,
-	put(max_trials,Max_Trials).
-	
-	calculate_CurGenPopNWeights([DX_Id|DX_Ids],Acc)->
-		[DX] = mnesia:dirty_read({dx,DX_Id}),
-		N_Ids = DX#dx.n_ids,
-		Generation = DX#dx.generation,
-		%io:format("N_Ids:~p Generation:~p DX:~p~n",[N_Ids,Generation,DX]),
-		CurGenN_Ids = exoself:extract_CurGenNIds(N_Ids,Generation,5,[]),
-		Tot_CG_Weights = exoself:extract_NWeightCount(CurGenN_Ids,0),
-		calculate_CurGenPopNWeights(DX_Ids,Tot_CG_Weights+Acc);
-	calculate_CurGenPopNWeights([],Acc)->
-		Acc.
+%The calculate_EnergyCost/1 calculates the average cost of each neuron, based on the fitness of each agent in the population, and the total number of neurons in the population. The value is calcualted by first adding up all the fitness scores of the agents belonging to the population. Then adding up the total number of neurons composing each agent in the population. And then finally producing the EnergyCost value by dividing the TotEnergy by TotNeurons, returning the value to the caller.
 
-%-record(stat,{avg_subcores=[],avg_neurons=[],avg_fitness,max_fitness,min_fitness,avg_diversity=[],evaluations=[],time_stamp}).
-%-record(trace,{stats=[],tot_evaluations=0,step_size=500,next_step=500}).
-%-record(stats,{avg_subcores=[],avg_neurons=[],avg_fitness=[],max_fitness=[],min_fitness=[],avg_diversity=[],tot_evaluations=0,step_size=500,next_step=0}).
-%-record(population,{id,type,specie_ids=[],topspecie_ids,polis_id}).
-%-record(specie,{id,morphology,stats=#stats{},avg_fitness,stagnation_factor,dx_ids=[],topdx_ids=[],championdx_ids=[],population_id}).
-%-record(summary,{tot_subcores,tot_substrates,tot_sc_ils,tot_sc_ols,tot_sc_ros,tot_neurons,tot_n_ils,tot_n_ols,tot_n_ros,af_distribution,fitness}).
-gather_STATS(Population_Id,EvaluationsAcc)->
-	io:format("Gathering Species STATS in progress~n"),
-	TimeStamp = technome_constructor:generate_UniqueId(),
-	F = fun() ->
-		[P] = mnesia:read({population,Population_Id}),
-		T = P#population.trace,
-		
-		SpecieSTATS = [update_SpecieSTAT(Specie_Id,TimeStamp) || Specie_Id<-P#population.specie_ids],
-		PopulationSTATS = T#trace.stats,
-		U_PopulationSTATS = [SpecieSTATS|PopulationSTATS],
-		U_TotEvaluations = T#trace.tot_evaluations+EvaluationsAcc,
-		U_Trace = T#trace{
-			stats = U_PopulationSTATS,
-			tot_evaluations=U_TotEvaluations
-		},
-		io:format("Population Trace:~p~n",[U_Trace]),
-		mnesia:write(P#population{trace=U_Trace})
-	end,
-	Result=mnesia:transaction(F),
-	io:format("Result:~p~n",[Result]).
+	extract_AgentTotNeurons(Agent_Id)->
+		A = genotype:dirty_read({agent,Agent_Id}),
+		Cx = genotype:dirty_read({cortex,A#agent.cx_id}),
+		Neuron_Ids = Cx#cortex.neuron_ids,
+		length(Neuron_Ids).
 	
-	update_SpecieSTAT(Specie_Id,TimeStamp)->
-		%-record(stat,{avg_subcores=[],avg_neurons=[],avg_fitness,max_fitness,min_fitness,avg_diversity=[],evaluations=[],time_stamp}).
-		%-record(trace,{stats=[],tot_evaluations=0,step_size=500,next_step=500}).
-		%-record(specie,{id,morphology,constraint,trace=#trace{},cur_stat,avg_fitness,stagnation_factor,dx_ids=[],topdx_ids=[],championdx_ids=[],population_id}).
-		Specie_Evaluations = get({evaluations,Specie_Id}),
-		put({evaluations,Specie_Id},0),
-		[S] = mnesia:dirty_read({specie,Specie_Id}),
-		{Avg_SubCores,SubCores_Std,Avg_Neurons,Neurons_Std} = calculate_SpecieAvgNodes({specie,S}),
-		{AvgFitness,Fitness_Std,MaxFitness,MinFitness} = calculate_SpecieFitness({specie,S}),
-		SpecieDiversity = calculate_SpecieDiversity({specie,S}),
-		GenTest_FitnessP=gt(Specie_Id),
-		STAT = #stat{
-			morphology = S#specie.morphology,
-			specie_id = Specie_Id,
-			avg_subcores=Avg_SubCores,
-			subcores_std = SubCores_Std,
-			avg_neurons=Avg_Neurons,
-			neurons_std = Neurons_Std,
-			avg_fitness=AvgFitness,
-			fitness_std = Fitness_Std,
-			max_fitness=MaxFitness,
-			min_fitness=MinFitness,
-			gentest_fitness = GenTest_FitnessP,
-			avg_diversity=SpecieDiversity,
-			evaluations = Specie_Evaluations,
-			time_stamp=TimeStamp
-		},
-		T = S#specie.trace,
-		%io:format("T:~p~n",[T]),
-		STATS = T#trace.stats,
-		U_STATS = [STAT|STATS],
-		U_Trace = T#trace{stats=U_STATS,
-			tot_evaluations=T#trace.tot_evaluations+Specie_Evaluations
-		},
-		mnesia:dirty_write(S#specie{trace=U_Trace}),
-		STAT.
+	extract_AgentFitness(Agent_Id)->
+		A = genotype:dirty_read({agent,Agent_Id}),
+		A#agent.fitness.
+%The function extract_AgentTotNeurons simply extracts the neuron_ids list, and returns the length of that list, which is the total number of neurons belonging to the NN based system.
 
-calculate_SpecieAvgNodes({specie,S})->
-	%io:format("SpecieAvgNodes:~p~n",[S]),
-	DX_Ids = S#specie.dx_ids,
-	calculate_AvgNodes(DX_Ids,[],[]);
-calculate_SpecieAvgNodes(Specie_Id)->
-	io:format("calculate_SpecieAvgNodes(Specie_Id):~p~n",[Specie_Id]),
-	[S] = mnesia:dirty_read({specie,Specie_Id}),
-	calculate_SpecieAvgNodes({specie,S}).
-	
-	calculate_AvgNodes([DX_Id|DX_Ids],SCAcc,NAcc)->
-		io:format("calculate_AvgNodes(...), DX_Id:~p~n",[DX_Id]),
-		[DX] = mnesia:read({dx,DX_Id}),
-		Summary = DX#dx.summary,
-		Tot_Subcores = 0,%Summary#summary.tot_subcores,
-		Tot_Neurons = Summary#summary.tot_neurons,
-		calculate_AvgNodes(DX_Ids,[Tot_Subcores|SCAcc],[Tot_Neurons|NAcc]);
-	calculate_AvgNodes([],SCAcc,NAcc)->
-		{functions:avg(SCAcc),functions:std(SCAcc),functions:avg(NAcc),functions:std(NAcc)}.
-
-calculate_PopulationDiversity(Population_Id,[Specie_Id|Specie_Ids],Acc)->
-	Diversity = calculate_SpecieDiversity(Specie_Id),
-	case get({diversity,Specie_Id}) of
-		undefined->
-			put({diversity,Specie_Id},[Diversity]);
-		PrevGenDiversity ->
-			put({diversity,Specie_Id},[Diversity|PrevGenDiversity])
-	end,
-	calculate_PopulationDiversity(Population_Id,Specie_Ids,[{Specie_Id,Diversity}|Acc]);
-calculate_PopulationDiversity(_Tot_Population_Id,[],Acc)->
-	Acc.
-
-	calculate_SpecieDiversity({specie,S})->
-		DX_Ids = S#specie.dx_ids,
-		Diversity = calculate_diversity(DX_Ids);
-	calculate_SpecieDiversity(Specie_Id)->
-		[S] = mnesia:dirty_read({specie,Specie_Id}),
-		calculate_SpecieDiversity({specie,S}).
-		
-		calculate_diversity(DX_Ids)->
-			calculate_diversity(DX_Ids,[]).
-		calculate_diversity([DX_Id|DX_Ids],DiversityAcc)->
-			%DiversityFactors:DXNN Size, AF, LT, #Conenctions, ConnectionTypes
-			[DX] = mnesia:read({dx,DX_Id}),
-			Summary = DX#dx.summary,
-			NeuroLinkSummary = {Summary#summary.tot_n_ils,Summary#summary.tot_n_ols,Summary#summary.tot_n_ros},
-			QuickSummary = [{Summary#summary.tot_neurons,Summary#summary.af_distribution,NeuroLinkSummary}],
-			U_DiversityAcc = (DiversityAcc -- QuickSummary)++QuickSummary,%TODO, there is a better way to do this.
-			calculate_diversity(DX_Ids,U_DiversityAcc);
-		calculate_diversity([],DiversityAcc)->
-			length(DiversityAcc).
-
-print_SpecieDiversity([Specie_Id|Specie_Ids])->
-	[S] = mnesia:dirty_read({specie,Specie_Id}),
-	io:format("Specie id:~p~n Specie morphology:~p~n Diversity:~p~n",[Specie_Id,S#specie.morphology,get({diversity,Specie_Id})]),
-	print_SpecieDiversity(Specie_Ids);
-print_SpecieDiversity([])->
-	done.
-		
 calculate_PopulationFitness(Population_Id,[Specie_Id|Specie_Ids],AvgFAcc,MaxFAcc,MinFAcc)->
 	{AvgFitness,Std,MaxF,MinF}=calculate_SpecieFitness(Specie_Id),
 	case get({fitness,Specie_Id}) of
@@ -968,8 +602,8 @@ calculate_PopulationFitness(_Population_Id,[],AvgFAcc,MaxFAcc,MinFAcc)->
 	{AvgFAcc,MaxFAcc,MinFAcc}.
 
 	calculate_SpecieFitness({specie,S})->
-		DX_Ids = S#specie.dx_ids,
-		FitnessAcc = calculate_fitness(DX_Ids),
+		Agent_Ids = S#specie.agent_ids,
+		FitnessAcc = calculate_fitness(Agent_Ids),
 		Sorted_FitnessAcc=lists:sort(FitnessAcc),
 		case Sorted_FitnessAcc of
 			[] ->
@@ -989,108 +623,146 @@ calculate_PopulationFitness(_Population_Id,[],AvgFAcc,MaxFAcc,MinFAcc)->
 		end,
 		{AvgFitness,Std,MaxFitness,MinFitness};
 	calculate_SpecieFitness(Specie_Id)->
-		[S] = mnesia:dirty_read({specie,Specie_Id}),
+		S = genotype:dirty_read({specie,Specie_Id}),
 		calculate_SpecieFitness({specie,S}).
-		
-		calculate_fitness(DX_Ids)->
-			calculate_fitness(DX_Ids,[]).
-		calculate_fitness([DX_Id|DX_Ids],FitnessAcc)->
-			[DX] = mnesia:read({dx,DX_Id}),
-			case DX#dx.fitness of
-				undefined ->
-					calculate_fitness(DX_Ids,FitnessAcc);
-				Fitness ->
-					calculate_fitness(DX_Ids,[Fitness|FitnessAcc])
-			end;
-		calculate_fitness([],FitnessAcc)->
-			FitnessAcc.
+%The calculate_SpecieFitness/1 function calculates the general fitness statistic of the specie, the averate, max, min, and standard deviation of the specie's fitness. The function first composes a fitness list by accessing the fitness scores of each agent belonging to it, and then calculates the noted above statistics from that list, returning the tuple to the caller.
 
-gt(Specie_Id)->
-	ChampionDX_Id = case extract_ChampionDXIds([Specie_Id],[]) of
-		[DX_Id] ->
-			DX_Id;
-		[DX_Id|_] ->
-			DX_Id;
-		[]->
-			void
-	end,
-	case ChampionDX_Id of
-		void ->
-			{0,void};
-		_ ->
-			{ok,ChampionDX_PId}= exoself:start_link({benchmark,ChampionDX_Id,1}),
-			receive
-				{ChampionDX_Id,Fitness,FitnessProfile}->
-					{Fitness,ChampionDX_Id}
-			end
-	end.
+	calculate_fitness(Agent_Ids)->
+		calculate_fitness(Agent_Ids,[]).
+	calculate_fitness([Agent_Id|Agent_Ids],FitnessAcc)->
+		A = genotype:dirty_read({agent,Agent_Id}),
+		case A#agent.fitness of
+			undefined ->
+				calculate_fitness(Agent_Ids,FitnessAcc);
+			Fitness ->
+				calculate_fitness(Agent_Ids,[Fitness|FitnessAcc])
+		end;
+	calculate_fitness([],FitnessAcc)->
+		FitnessAcc.
+%The calculate_fitness/1 composes a fitness list composed of the fitness values belonging to the agents in the Agent_Ids list. If the agent does not yet have a fitness score, if for example it has just been created/mutated but not yet evaluated, it is skipped. The composed fitness list is returned to the caller.
 
-conform_SpecieSize(Population_Id)->
-	F = fun()->
-		[P] = mnesia:read({population,Population_Id}),
-		Specie_Ids = P#population.specie_ids,
-		conform_SpecieSize(Population_Id,Specie_Ids)
+gather_STATS(Population_Id,EvaluationsAcc,OpMode)->
+	io:format("Gathering Species STATS in progress~n"),
+	TimeStamp = now(),
+	F = fun() ->
+		P = genotype:read({population,Population_Id}),
+		T = P#population.trace,
+		SpecieSTATS = [update_SpecieSTAT(Specie_Id,TimeStamp,OpMode) || Specie_Id<-P#population.specie_ids],
+		PopulationSTATS = T#trace.stats,
+		U_PopulationSTATS = [SpecieSTATS|PopulationSTATS],
+		U_TotEvaluations = T#trace.tot_evaluations+EvaluationsAcc,
+		U_Trace = T#trace{
+			stats = U_PopulationSTATS,
+			tot_evaluations=U_TotEvaluations
+		},
+		io:format("Population Trace:~p~n",[U_Trace]),
+		mnesia:write(P#population{trace=U_Trace})
 	end,
 	Result=mnesia:transaction(F),
-	io:format("conform_SpecieSize(Population_Id) result:~p~n",[Result]).
+	io:format("Result:~p~n",[Result]).
 	
-conform_SpecieSize(Population_Id,[Specie_Id|Specie_Ids])->
-	[S] = mnesia:read({specie,Specie_Id}),
-	DX_Ids = S#specie.dx_ids -- [DX_Id||{_,_,DX_Id}<-S#specie.dead_pool],
-	case length(DX_Ids) > ?SPECIE_SIZE_LIMIT of
-		true ->
-			Sorted_DXSummaries = lists:reverse(lists:sort(extract_DXSummaries(DX_Ids,[]))),
-			TotSurvivors = ?SPECIE_SIZE_LIMIT,
-			SDX=lists:reverse(lists:sort([{Fitness_/math:pow(TotN,?EFF),{Fitness_,[A,B,TotN],DX_Id_}}||{Fitness_,[A,B,TotN],DX_Id_}<-lists:reverse(lists:sort(Sorted_DXSummaries))])),
-			ProperlySorted_DXSummaries = [Val || {_,Val}<-SDX],
-			Valid_DXSummaries = lists:sublist(ProperlySorted_DXSummaries,TotSurvivors),
-			Invalid_DXSummaries = Sorted_DXSummaries -- Valid_DXSummaries,
-			{_,_,Invalid_DXIds} = unzip3(Invalid_DXSummaries),
-			[delete_dx(DX_Id,safe) || DX_Id <- Invalid_DXIds],
-			io:format("Conforming_SpecieSize-Valid_DXSummaries:~p~n",[Valid_DXSummaries]),
-			io:format("Conforming_SpecieSize-Invalid_DXSummaries:~p~n",[Invalid_DXSummaries]);
-		false ->
-			done
-	end,
-	conform_SpecieSize(Population_Id,Specie_Ids);
-conform_SpecieSize(_Population_Id,[])->
-	done.
-	
-update_PopulationChampions(Population_Id,Tot_Evaluations)->
-	F = fun()->
-		[P] = mnesia:read({population,Population_Id}),
-		Specie_Ids = P#population.specie_ids,
-		update_SpecieChampions(Specie_Ids)
-	end,
-	Result = mnesia:transaction(F),
-	io:format("Update_Champions result:~p~n",[Result]).
+	update_SpecieSTAT(Specie_Id,TimeStamp,OpMode)->
+		Specie_Evaluations = get({evaluations,Specie_Id}),
+		put({evaluations,Specie_Id},0),
+		S = genotype:read({specie,Specie_Id}),
+		{Avg_Neurons,Neurons_Std} = calculate_SpecieAvgNodes({specie,S}),
+		{AvgFitness,Fitness_Std,MaxFitness,MinFitness} = calculate_SpecieFitness({specie,S}),
+		SpecieDiversity = calculate_SpecieDiversity({specie,S}),
+		
+		STAT = #stat{
+			morphology = (S#specie.constraint)#constraint.morphology,
+			specie_id = Specie_Id,
+			avg_neurons=Avg_Neurons,
+			std_neurons=Neurons_Std,
+			avg_fitness=AvgFitness,
+			std_fitness=Fitness_Std,
+			max_fitness=MaxFitness,
+			min_fitness=MinFitness,
+			avg_diversity=SpecieDiversity,
+			evaluations = Specie_Evaluations,
+			time_stamp=TimeStamp,
+			gentest_fitness = run_GenTest(S,OpMode)
+		},
+		STATS = S#specie.stats,
+		U_STATS = [STAT|STATS],
+		mnesia:dirty_write(S#specie{stats=U_STATS}),
+		STAT.
 
-	update_SpecieChampions([Specie_Id|Specie_Ids])->
-		[S] = mnesia:read({specie,Specie_Id}),
-		case S#specie.topdx_ids of
-			[] ->
-				done;
-			TopDX_Ids->
-				[TopDX_Id|_] = TopDX_Ids,
-				ChampionDX_Idps = S#specie.championdx_ids,
-				U_ChampionDX_Idps=case lists:keymember(TopDX_Id,1,ChampionDX_Idps) of
-					true -> 
-						ChampionDX_Idps;
-					false->
-						ChampionDX_Id = clone_dx(TopDX_Id),
-						case length(ChampionDX_Idps) >= 10 of
-							true ->
-								Valid_ChampionDX_Idps = lists:sublist([{TopDX_Id,ChampionDX_Id}|ChampionDX_Idps],10),
-								Invalid_ChampionDX_Idps =  [{TopDX_Id,ChampionDX_Id}|ChampionDX_Idps] -- Valid_ChampionDX_Idps,
-								[delete_dx(Invalid_ChampionDX_Id)|| {_OriginalDX_Id,Invalid_ChampionDX_Id}<-Invalid_ChampionDX_Idps],
-								Valid_ChampionDX_Idps;
-							false ->
-								[{TopDX_Id,ChampionDX_Id}|ChampionDX_Idps]
-						end
-				end,
-				io:format("U_ChampionDX_Idps:~p~n",[U_ChampionDX_Idps]),
-				mnesia:write(S#specie{championdx_ids = U_ChampionDX_Idps})
+	run_GenTest(S,benchmark)->
+		ChampionAgent_Id = case S#specie.champion_ids of%TODO:Update the manner in which champions are stored and added, currently, they are not deleted with the population... acumulate over time, are 3 at a time...
+			[Id] ->
+				Id;
+			[Id|_] ->
+				Id;
+			[]->
+				void
 		end,
-		update_SpecieChampions(Specie_Ids);
-	update_SpecieChampions([])->
-		done.
+		case ChampionAgent_Id of
+			void ->
+				{0,void};
+			_ ->
+				ChampionAgent_PId=exoself:start(ChampionAgent_Id,self(),benchmark),
+				receive
+					{ChampionAgent_PId,benchmark_complete,Specie_Id,Fitness,Cycles,Time}->
+						genotype:print(ChampionAgent_Id),
+						{Fitness,ChampionAgent_Id}
+					%Msg ->
+					%	io:format("Msg:~p~n",[Msg])
+				end
+		end;
+	run_GenTest(_S,_)->
+		0.
+
+calculate_SpecieAvgNodes({specie,S})->
+	Agent_Ids = S#specie.agent_ids,
+	calculate_AvgNodes(Agent_Ids,[]);
+calculate_SpecieAvgNodes(Specie_Id)->
+	io:format("calculate_SpecieAvgNodes(Specie_Id):~p~n",[Specie_Id]),
+	S = genotype:read({specie,Specie_Id}),
+	calculate_SpecieAvgNodes({specie,S}).
+	
+	calculate_AvgNodes([Agent_Id|Agent_Ids],NAcc)->
+		io:format("calculate_AvgNodes/2 Agent_Id:~p~n",[Agent_Id]),
+		A = genotype:read({agent,Agent_Id}),
+		Cx = genotype:read({cortex,A#agent.cx_id}),
+		Tot_Neurons = length(Cx#cortex.neuron_ids),
+		calculate_AvgNodes(Agent_Ids,[Tot_Neurons|NAcc]);
+	calculate_AvgNodes([],NAcc)->
+		{functions:avg(NAcc),functions:std(NAcc)}.
+
+calculate_PopulationDiversity(Population_Id,[Specie_Id|Specie_Ids],Acc)->
+	Diversity = calculate_SpecieDiversity(Specie_Id),
+	case get({diversity,Specie_Id}) of
+		undefined->
+			put({diversity,Specie_Id},[Diversity]);
+		PrevGenDiversity ->
+			put({diversity,Specie_Id},[Diversity|PrevGenDiversity])
+	end,
+	calculate_PopulationDiversity(Population_Id,Specie_Ids,[{Specie_Id,Diversity}|Acc]);
+calculate_PopulationDiversity(_Tot_Population_Id,[],Acc)->
+	Acc.
+
+	calculate_SpecieDiversity({specie,S})->
+		Agent_Ids = S#specie.agent_ids,
+		Diversity = calculate_diversity(Agent_Ids);
+	calculate_SpecieDiversity(Specie_Id)->
+		S = genotype:dirty_read({specie,Specie_Id}),
+		calculate_SpecieDiversity({specie,S}).
+		
+		calculate_diversity(Agent_Ids)->
+			calculate_diversity(Agent_Ids,[]).
+		calculate_diversity([Agent_Id|Agent_Ids],DiversityAcc)->
+			A = genotype:read({agent,Agent_Id}),
+			Fingerprint = A#agent.fingerprint,
+			U_DiversityAcc = (DiversityAcc -- [Fingerprint]) ++ [Fingerprint],
+			calculate_diversity(Agent_Ids,U_DiversityAcc);
+		calculate_diversity([],DiversityAcc)->
+			length(DiversityAcc).
+
+print_SpecieDiversity([Specie_Id|Specie_Ids])->
+	S = genotype:dirty_read({specie,Specie_Id}),
+	Morphology=(S#specie.constraint)#constraint.morphology,
+	io:format("Specie id:~p~n Specie morphology:~p~n Diversity:~p~n",[Specie_Id,Morphology,get({diversity,Specie_Id})]),
+	print_SpecieDiversity(Specie_Ids);
+print_SpecieDiversity([])->
+	done.

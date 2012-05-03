@@ -1,228 +1,160 @@
-%% This source code and work is provided and developed by DXNN Research Group WWW.DXNNResearch.COM
-%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% This source code and work is provided and developed by Gene I. Sher & DXNN Research Group WWW.DXNNResearch.COM
+%
 %Copyright (C) 2009 by Gene Sher, DXNN Research Group, CorticalComputer@gmail.com
 %All rights reserved.
 %
 %This code is licensed under the version 3 of the GNU General Public License. Please see the LICENSE file that accompanies this project for the terms of use.
+%
+%The original release of this source code and the DXNN MK2 system was introduced and explained (architecture and the logic behind it) in my book: Handbook of Neuroevolution Through Erlang. Springer 2012, print ISBN: 978-1-4614-4462-6 ebook ISBN: 978-1-4614-4463-6. 
+%%%%%%%%%%%%%%%%%%%% Deus Ex Neural Network :: DXNN %%%%%%%%%%%%%%%%%%%%
 
--module(polis).
-%-compile(export_all).
-%% API
--export([start_link/1,start_link/0,start/1,start/0,stop/0,init/2,create/0,reset/0,sync/0]).
-%% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
-%-record(state, {}).
--behaviour(gen_server).
--include("records.hrl").
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Polis Options %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--record(scape_summary,{id,type,name,physics,metabolics}).
--record(state,{active_mods=[],public_scapes=[],private_scapes=[]}).
+-module(polis). 
+%% API 
+-export([start/1,start/0,stop/0,init/2,create/0,reset/0,sync/0]). 
+%% gen_server callbacks 
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2,terminate/2, code_change/3]). 
+-behaviour(gen_server). 
+-include("records.hrl"). 
+%%=========================================== Polis Configuration Options 
+-record(state,{active_mods=[],active_scapes=[]}). 
+-record(scape_summary,{address,type,parameters=[]}).
+-define(MODS,[]).
+-define(PUBLIC_SCAPES,[]). 
+%The MODS list contains the names of the processes, functions, or other databases that also need to be executed and started when we start our neuroevolutionary platform. In the same manner, when we have created a new public scape, we can add a scape_summary tuple with this scape's information to the PUBLIC_SCAPES list, so that it is initialized and started with the system. The state record for the polis has all the elements needed to track the currently active mods and public scapes, which were either present during the startup of the neuroevolutionary platform, or latter added while the polis was already online.
 
--define(PRIVATE_SCAPES,[
-	#scape_summary{type=pole_balancing,metabolics=static} %Solipsis
-]).
--define(PUBLIC_SCAPES,[
-	#scape_summary{type=flatland,metabolics=static} %Public Forum
-]).
+%%=========================================== API 
+sync()-> 
+	make:all([load]). 
+% A sync/1 function can compile and reload all the modules pertaining to the project within the folder.
 
-sync()->
-	make:all([load]).
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%==================================================================== API
-%%--------------------------------------------------------------------
-%% Function: start_link() -> {ok,Pid} | ignore | {error,Error}
-%% Description: Starts the server
-%%--------------------------------------------------------------------
-start_link(Start_Parameters) ->
-	gen_server:start_link(?MODULE, Start_Parameters, []).
+start() -> 
+	case whereis(polis) of 
+		undefined -> 
+			gen_server:start(?MODULE, {?MODS,?PUBLIC_SCAPES}, []); 
+		Polis_PId -> 
+			io:format("Polis:~p is already running on this node.~n",[Polis_PId]) 
+	end. 
 
 start(Start_Parameters) -> 
-	gen_server:start(?MODULE, Start_Parameters, []).
-	
-start_link() ->
-	gen_server:start_link(?MODULE, [], []).
-    
-start() -> 
-	case whereis(polis) of
-		undefined ->
-			gen_server:start(?MODULE, [], []);
-		Polis_PId ->
-			io:format("Polis is already started, PId:~p~n",[Polis_PId])
-	end.
-	
-stop()->
-	case whereis(polis) of
-		undefined ->
-			io:format("Polis cannot be stopped, it is not online~n");
-		Polis_PId ->
-			Result = gen_server:cast(Polis_PId,{stop,normal}),
-			io:format("Polis stopped, result:~p~n",[Result])
-	end.
-	
-init(Pid,InitState)->
-	gen_server:cast(Pid,{init,InitState}).
+	gen_server:start(?MODULE, Start_Parameters, []). 
+init(Pid,InitState)-> 
+	gen_server:cast(Pid,{init,InitState}). 
+%The start/0 first checks whether a polis process has already been spawned, by checking if one is registered. If it's not, then the start/1 function starts up the neuroevolutionary platform.
 
-%%==================================================================== gen_server callbacks
-%%--------------------------------------------------------------------
-%% Function: init(Args) -> {ok, State} |
-%%                         {ok, State, Timeout} |
-%%                         ignore               |
-%%                         {stop, Reason}
-%% Description: Initiates the server
-%%--------------------------------------------------------------------
-init(Active_Mods) ->
-	process_flag(trap_exit,true),
-	register(polis,self()),
-	io:format("Polis Parameters:~p~n",[Active_Mods]),
-	{A,B,C} = now(),
-	random:seed(A,B,C),
-	Public_Scapes = start_scapes(?PUBLIC_SCAPES,[]),
-	Private_Scapes =[],
-	mnesia:start(),
-	start_databases(),
-	start_supmods(Active_Mods),
-	io:format("******** Polis: ##MATHEMA## is now online.~n"),
-	InitState = #state{active_mods=Active_Mods,public_scapes=Public_Scapes,private_scapes=Private_Scapes}, %Scape_PIdsP = [{Scape_PId,Scape_Type}...]
-	{ok, InitState}.
-	
-%%--------------------------------------------------------------------
-%% Function: %% handle_call(Request, From, State) -> {reply, Reply, State} |
-%%                                      {reply, Reply, State, Timeout} |
-%%                                      {noreply, State} |
-%%                                      {noreply, State, Timeout} |
-%%                                      {stop, Reason, Reply, State} |
-%%                                      {stop, Reason, State}
-%% Description: Handling call messages
-%%--------------------------------------------------------------------
-handle_call({get_scape,random},{Cx_PId,_Ref},S)->
-	Public_Scapes=S#state.public_scapes,
-	PS=lists:nth(random:uniform(length(Public_Scapes)),Public_Scapes),
-	{reply,{PS#scape_summary.id,PS#scape_summary.type},S};
-handle_call({get_scape,ScapeType},{Cx_PId,_Ref},S)->%TODO: Needs to be based on Name and Type(public/private)
-	Public_Scapes = S#state.public_scapes,
-	io:format("Public_Scapes:~p ScapeType:~p~n",[Public_Scapes,ScapeType]),
-	io:format("KeyFind:~p~n",[lists:keyfind(ScapeType,3,Public_Scapes)]),
-	Scape_PIdP = case lists:keyfind(ScapeType,3,Public_Scapes) of
-		false ->
-			undefined;
-		PS ->
-			{PS#scape_summary.id,PS#scape_summary.type}
-	end,
-	{reply,Scape_PIdP,S};
-handle_call({stop,normal},_From, State)->
-	{stop, normal, State};
-handle_call({stop,shutdown},_From,State)->
-	{stop, shutdown, State}.
+stop()-> 
+	case whereis(polis) of 
+		undefined -> 
+			io:format("Polis cannot be stopped, it is not online~n"); 
+		Polis_PId -> 
+			gen_server:cast(Polis_PId,{stop,normal})
+	end. 
+%The stop/0 function first checks whether a polis process is online. If there is an online polis process running on the node, then the stop function sends a signal to it requesting it to stop.
+	 
+%%============================================ gen_server callbacks 
+init({Mods,PublicScapes}) -> 
+	{A,B,C} = now(), 
+	random:seed(A,B,C), 
+	process_flag(trap_exit,true), 
+	register(polis,self()), 
+	io:format("Parameters:~p~n",[{Mods,PublicScapes}]), 
+	mnesia:start(), 
+	start_supmods(Mods), 
+	Active_PublicScapes = start_scapes(PublicScapes,[]), 
+	io:format("******** Polis: ##MATHEMA## is now online.~n"), 
+	InitState = #state{active_mods=Mods,active_scapes=Active_PublicScapes}, 
+	%Scape_PIdsP = [{Scape_PId,Scape_Type}...] 
+	{ok, InitState}. 
+%The init/1 function first seeds random with a new seed, in the case a random number generator will be needed. The polis process is then registered, the mnesia database is started, and the supporting modules, if any, are then started through the start_supmods/1 function. Then all the specified public scapes, if any, are activated. Having called our neuroevolutionary platform polis, we give this polis a name “MATHEMA”, which is a greek word for knowledge, and learning. Finally we create the initial state, which contains the Pids of the currently active public scapes, and the names of the activated mods. The function then drops into the main gen_server loop.
 
-%%--------------------------------------------------------------------
-%% Function: handle_cast(Msg, State) -> {noreply, State} |
-%%                                      {noreply, State, Timeout} |
-%%                                      {stop, Reason, State}
-%% Description: Handling cast messages
-%%--------------------------------------------------------------------
-handle_cast({init,InitState},_State)->
-	{noreply,InitState};
-handle_cast({stop,normal},State)->
-	{stop, normal,State};
-handle_cast({stop,shutdown},State)->
-	{stop, shutdown, State}.
-%%--------------------------------------------------------------------
-%% Function: handle_info(Info, State) -> {noreply, State} |
-%%                                       {noreply, State, Timeout} |
-%%                                       {stop, Reason, State}
-%% Description: Handling all non call/cast messages
-%%--------------------------------------------------------------------
+handle_call({get_scape,Type},{Cx_PId,_Ref},S)->
+	Active_PublicScapes = S#state.active_scapes, 
+	Scape_PId = case lists:keyfind(Type,3,Active_PublicScapes) of 
+		false -> 
+			undefined; 
+		PS -> 
+			PS#scape_summary.address
+	end, 
+	{reply,Scape_PId,S}; 
+handle_call({stop,normal},_From, State)-> 
+	{stop, normal, State}; 
+handle_call({stop,shutdown},_From,State)-> 
+	{stop, shutdown, State}. 
+%At this point polis only accepts a get_scape call, to which it replies with the Pid or undefined message, and the two standard {stop,normal} and {stop,shutdown} calls.
+
+handle_cast({init,InitState},_State)-> 
+	{noreply,InitState}; 
+handle_cast({stop,normal},State)-> 
+	{stop, normal,State}; 
+handle_cast({stop,shutdown},State)-> 
+	{stop, shutdown, State}. 
+%At this point polis allows only for 3 standard casts: {init,InitState}, {stop,normal} and {stop,shutdown}.
+
 handle_info(_Info, State) ->
     {noreply, State}.
+%The standard, still unused handle_info/2 function.
 
-%%--------------------------------------------------------------------
-%% Function: terminate(Reason, State) -> void()
-%% Description: This function is called by a gen_server when it is about to
-%% terminate. It should be the opposite of Module:init/1 and do any necessary
-%% cleaning up. When it returns, the gen_server terminates with Reason.
-%% The return value is ignored.
-%%--------------------------------------------------------------------
-terminate(Reason, S) ->
-	Active_Mods = S#state.active_mods,
-	stop_supmods(Active_Mods),
-	stop_databases(),
-	io:format("******** Polis: ##MATHEMA## is now offline, terminated with reason:~p~n",[Reason]),
-	ok.
+terminate(Reason, S) -> 
+	Active_Mods = S#state.active_mods, 
+	stop_supmods(Active_Mods), 
+	stop_scapes(S#state.active_scapes),
+	io:format("******** Polis: ##MATHEMA## is now offline, terminated with reason:~p~n",[Reason]), 
+	ok. 
 
-%%--------------------------------------------------------------------
-%% Func: code_change(OldVsn, State, Extra) -> {ok, NewState}
-%% Description: Convert process state when code is changed
-%%--------------------------------------------------------------------
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+code_change(_OldVsn, State, _Extra) -> 
+    {ok, State}. 
+%When polis is terminated, it first shuts down all the scapes by calling stop_scapes/1, and then all the supporting mods, by calling stop_supmods/1.
 
-%%--------------------------------------------------------------------
-%%% Internal functions
-%%--------------------------------------------------------------------
-create()->
-	mnesia:create_schema([node()]),
-	mnesia:start(),
-	mnesia:create_table(dx,[{disc_copies, [node()]},{type,set},{attributes, record_info(fields,dx)}]),
-	mnesia:create_table(cortex,[{disc_copies, [node()]},{type,set},{attributes, record_info(fields,cortex)}]),
-	mnesia:create_table(neuron,[{disc_copies, [node()]},{type,set},{attributes, record_info(fields,neuron)}]),
-	mnesia:create_table(polis,[{disc_copies, [node()]},{type,set},{attributes, record_info(fields,polis)}]),
-	mnesia:create_table(population,[{disc_copies, [node()]},{type,set},{attributes, record_info(fields,population)}]),
+%%-------------------------------------------------------------------- 
+%%% Internal functions 
+%%-------------------------------------------------------------------- 
+create()-> 
+	mnesia:create_schema([node()]), 
+	mnesia:start(), 
+	mnesia:create_table(population,[{disc_copies, [node()]},{type,set},{attributes, record_info(fields,population)}]), 
 	mnesia:create_table(specie,[{disc_copies, [node()]},{type,set},{attributes, record_info(fields,specie)}]),
-	%mnesia:create_table(citizen,[{disc_copies, [node()]},{type,set},{attributes, record_info(fields,citizen)}]).
-	mnesia:create_table(scape,[{disc_copies, [node()]},{type,set},{attributes, record_info(fields,scape)}]),
-	mnesia:create_table(avatar,[{disc_copies, [node()]},{type,set},{attributes, record_info(fields,avatar)}]),
-	mnesia:create_table(object,[{disc_copies, [node()]},{type,set},{attributes, record_info(fields,object)}]),
-	mnesia:create_table(e,[{disc_copies, [node()]},{type,set},{attributes, record_info(fields,e)}]),
-	mnesia:create_table(a,[{disc_copies, [node()]},{type,set},{attributes, record_info(fields,a)}]).
+	mnesia:create_table(agent,[{disc_copies, [node()]},{type,set},{attributes, record_info(fields,agent)}]), 
+	mnesia:create_table(cortex,[{disc_copies, [node()]},{type,set},{attributes, record_info(fields,cortex)}]), 
+	mnesia:create_table(neuron,[{disc_copies, [node()]},{type,set},{attributes, record_info(fields,neuron)}]),
+	mnesia:create_table(sensor,[{disc_copies, [node()]},{type,set},{attributes, record_info(fields,sensor)}]), 
+	mnesia:create_table(actuator,[{disc_copies, [node()]},{type,set},{attributes, record_info(fields,actuator)}]),
+	mnesia:create_table(substrate,[{disc_copies, [node()]},{type,set},{attributes, record_info(fields,substrate)}]),
+	mnesia:create_table(experiment,[{disc_copies, [node()]},{type,set},{attributes, record_info(fields,experiment)}]).
 
-reset()->
-	mnesia:stop(),
-	ok = mnesia:delete_schema([node()]),
-	polis:create().
+reset()-> 
+	mnesia:stop(), 
+	ok = mnesia:delete_schema([node()]), 
+	polis:create(). 
+%The create/0 function sets up new mnesia databases composed of the dx, cortex, neuron, sensor, actuator, polis, and population, and specie tables. The reset/0 function deletes the schema, and recreates a fresh database from scratch.
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Start/Stop %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%Start/Stop enviromental modules: DBs, Environments, Network Access systems and tools...
-start_supmods([ModName|ActiveMods])->
-	ModName:start(),
-	start_supmods(ActiveMods);
-start_supmods([])->
-	benchmark:start(),
-	logger:start(),
-	done.
-		
-start_databases()->
-%	forex_db:start(),
-%	db:heartbeat().
-	done.
+%Start/Stop enviromental modules: DBs, Environments, Network Access systems and tools... 
+start_supmods([ModName|ActiveMods])-> 
+	ModName:start(), 
+	start_supmods(ActiveMods); 
+start_supmods([])-> 
+	done. 
+%The start_supmods/1 function expects a list of module names of the mods that are to be started with the startup of the neuroeovlutionary platform. Each module must have a start/0 function that starts up the supporting mod process.
 
-stop_supmods([ModName|ActiveMods])->
-	ModName:stop(),
-	stop_supmods(ActiveMods);
-stop_supmods([])->
-	benchmark:stop(),
-	logger:stop(),
-	done.
-	
-stop_databases()->
-%	forex_db:stop(),
-	case whereis(heartbeat) of
-		undefined ->
-			done;
-		PId ->
-			PId ! terminate
-	end.
-	
-start_scapes([S|Scapes],Acc)->
-	Type = S#scape_summary.type,
-	Physics = S#scape_summary.physics,
-	Metabolics = S#scape_summary.metabolics,
-	{ok,PId} = scape:start_link({self(),Type,Physics,Metabolics}),
-	start_scapes(Scapes,[S#scape_summary{id=PId}|Acc]);
-start_scapes([],Acc)->
-	lists:reverse(Acc).
-	
-create_PrivateScape(Scape)->
-	{ok,Scape_PId} = scape:start_link({self(),Scape}),
-	{Scape_PId,Scape}.
-	
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Operators %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+stop_supmods([ModName|ActiveMods])-> 
+	ModName:stop(), 
+	stop_supmods(ActiveMods); 
+stop_supmods([])-> 
+	done. 
+%The stop_supmods/1 expects a list of supporting mod names, the mod's name must be the name of its module, and that module must have a stop/0 function tat stops the module. stop_supmods/1 goes through the list of the mods, and stops each one.
+
+start_scapes([S|Scapes],Acc)-> 
+	Type = S#scape_summary.type, 
+	Parameters = S#scape_summary.parameters,
+	{ok,PId} = scape:start_link({self(),Type,Parameters}), 
+	start_scapes(Scapes,[S#scape_summary{address=PId}|Acc]); 
+start_scapes([],Acc)-> 
+	lists:reverse(Acc). 
+%The start_scapes/2 function accepts a list of scape_summary records, which specify the names of the public scapes and any parameters that with which those scapes should be started. What specifies what scape that is going to be created by the scape module is the Type that is dropped into the function. Ofcourse the scape module should already be able to create the Type of scape that is dropped into the start_link function. Once the scape is started, we record the Pid in that scape_summary's record. When all the public scapes have been started, the function outputs a list of updated scape_summary records.
+
+stop_scapes([S|Scapes])-> 
+	PId = S#scape_summary.address,
+	gen_server:cast(PId,{self(),stop,normal}),
+	stop_scapes(Scapes); 
+stop_scapes([])-> 
+	ok.
+%The stop_scapes/1 function accepts a list of scape_summary records. The function extracts the Pid of the scape from the scape_summary, and requests for that scape to terminate itself.
