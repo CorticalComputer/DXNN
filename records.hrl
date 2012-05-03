@@ -8,7 +8,7 @@
 -record(af,{name,parameters,neural_constraints}).
 -record(lt,{name,parameters,neural_constraints}).
 -record(schema,{sensors,actuators}).
--record(stat,{morphology,specie_id,avg_subcores,subcores_std,avg_neurons,neurons_std,avg_fitness,fitness_std,max_fitness,min_fitness,avg_diversity,evaluations,time_stamp}).
+-record(stat,{morphology,specie_id,avg_subcores,subcores_std,avg_neurons,neurons_std,avg_fitness,fitness_std,max_fitness,min_fitness,avg_diversity,gentest_fitness,evaluations,time_stamp}).
 -record(fingerprint,{cf,ct,constraint,history,tot_subcores,tot_substrates,tot_neurons,subcore_pattern,neuro_patterns}).
 -record(trace,{stats=[],tot_evaluations=0,step_size=500,next_step=500}).
 -record(stats,{morphology,avg_subcores=[],avg_neurons=[],avg_fitness=[],max_fitness=[],min_fitness=[],avg_diversity=[],evaluations=[],tot_evaluations=0,step_size=500,next_step=500}).

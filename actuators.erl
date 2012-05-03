@@ -180,30 +180,51 @@ fx_Trade(ExoSelf,Output,ActuatorId,Parameters)->
 	end.
 	
 abc_pred(ExoSelf,[Output],ActuatorId,Parameters)->
-	[TableName,StartIndex,EndIndex,StartBenchIndex,EndBenchIndex] = Parameters,
+	[TableName,StartIndex,EndIndex,StartBenchIndex,EndBenchIndex,StartTestIndex,EndTestIndex] = Parameters,
 	case get(abc_pred) of
 		undefined ->
 			exit("ERROR in actuators:abc_pred/4, key not present~n");
-		Index ->
+		Ind ->
+			Index = case Ind == 0 of
+				true -> 1;
+				false -> Ind
+			end,
 			Classification = ets:lookup_element(TableName,Index,3),
 			%io:format("Classificatoin:~p~n",[Classification]),
+			TP=case (Classification == 1) and (1==functions:bin(Output)) of
+				true -> 1;
+				false -> 0
+			end,
+			TN=case (Classification == 0) and (0==functions:bin(Output)) of
+				true -> 1;
+				false -> 0
+			end,	
+			Fitness=case Classification == functions:bin(Output) of
+				true -> 1;
+				false -> 0
+			end,
 			Progress = case get(opmode) of
 				gt ->
 					case Index == EndIndex of
 						true -> erase(abc_pred),1;
-						false -> put(abc_pred,Index+1),0
+						false -> put(abc_pred,(Index+1) rem 1401),0
 					end;
 				benchmark ->
 					case Index == EndBenchIndex of
 						true -> erase(abc_pred),1;
-						false -> put(abc_pred,Index+1),0
-					end
+						false -> put(abc_pred,(Index+1) rem 1401),0
+					end;
+				test ->
+					case Index == EndTestIndex of
+						true -> erase(abc_pred),1;
+						false -> put(abc_pred,(Index+1) rem 1401),0
+					end	
 			end,
 			%io:format("Progress~p~n",[Progress]),
-			case Classification == functions:bin(Output) of
-				true ->
-					{Progress,1};
-				false ->
-					{Progress,0}
+			case get(opmode) of
+				test ->
+					{Progress,[Fitness,TP,TN]};
+				_ ->
+					{Progress,Fitness}
 			end
 	end.

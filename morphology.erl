@@ -208,21 +208,29 @@ prey(sensors)->
 	Color_Scanners++Distance_Scanners++Orders++Beacons.%++Communications.%++Energy_Scanners++Stat_Readers.
 
 epitopes(actuators)->
-	TableName=abc_pred16,
-	SequenceLength=16,
-	StartIndex=1,
-	EndIndex=840,
-	StartBenchIndex=841,
-	EndBenchIndex=1120,
-	[#actuator{name=abc_pred,id=cell_id,format=no_geo,tot_vl=1,parameters=[TableName,StartIndex,EndIndex,StartBenchIndex,EndBenchIndex]}];
+	SequenceLength=336,
+	Parameters=[
+		TableName=abc_pred16,
+		StartIndex=561,
+		EndIndex=1400,
+		StartBenchIndex=1401,
+		EndBenchIndex=280,
+		StartTestIndex=281,
+		EndTestIndex=560
+	],
+	[#actuator{name=abc_pred,id=cell_id,format=no_geo,tot_vl=1,parameters=Parameters}];
 epitopes(sensors)->
-	TableName=abc_pred16,
-	SequenceLength=16,
-	StartIndex=1,
-	EndIndex=840,
-	StartBenchIndex=841,
-	EndBenchIndex=1120,
-	[#sensor{name=abc_pred,id=fx_id,format=no_geo,tot_vl=SequenceLength,parameters=[TableName,StartIndex,EndIndex,StartBenchIndex,EndBenchIndex]}].
+	SequenceLength=336,
+	Parameters=[
+		TableName=abc_pred16,
+		StartIndex=561,
+		EndIndex=1400,
+		StartBenchIndex=1401,
+		EndBenchIndex=280,
+		StartTestIndex=281,
+		EndTestIndex=560
+	],
+	[#sensor{name=abc_pred,id=fx_id,format=no_geo,tot_vl=336,parameters=Parameters}].
 
 create_format(Type,Precurser)->
 	case Type of

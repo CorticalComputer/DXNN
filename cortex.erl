@@ -958,7 +958,7 @@ gt(ExoSelf,Specie_Id,[],AffectFitness,AffectProgress)->
 					put(fitness,{HighestFitness,AttemptIndex+1}), %TODO We need to reset the memory, because it just lets it back in, hence the diff 
 					reset_Memory,
 					reenter_scape(),
-					reset_IProfile				%We saw last time, where one of the values is different (the first?)
+					reset_IProfile	%We saw last time, where one of the values is different (the first?)
 			end
 	end.
 
@@ -991,6 +991,44 @@ benchmark(ExoSelf,Specie_Id,[],AffectFitness,AffectProgress)->
 			io:format("Pid:~p Fitness:~p~n",[self(),U_FitnessAcc]),
 			end_training
 	end.
+	
+test(ExoSelf,Specie_Id,[{A,Output}|OAcc],FitnessAcc,ProgressAcc)->
+	Name = A#actuator.name,
+	ActuatorId = A#actuator.id,
+	Parameters = A#actuator.parameters,
+	{Progress,Fitness} = actuators:Name(ExoSelf,Output,ActuatorId,Parameters),
+	case Fitness of
+		goal_reached-> put(goal,reached);
+		_ -> done
+	end,
+	test(ExoSelf,Specie_Id,OAcc,vector_add(Fitness,FitnessAcc,[]),ProgressAcc+Progress);
+test(ExoSelf,Specie_Id,[],FitnessAcc,AffectProgress)->
+	FitnessType = void,
+	U_FitnessAcc = case get(fitness_acc) of
+		undefined ->
+			FitnessAcc;
+		FA ->
+			%io:format("lists:reverse(FitnessAcc),FA:~p~n",[{lists:reverse(FitnessAcc),FA}]),
+			vector_add(FitnessAcc,FA,[])
+	end,
+	%U_FitnessAcc = FitnessAcc+AffectFitness,
+	put(fitness_acc,U_FitnessAcc),
+	case AffectProgress >= 1 of
+		false ->
+			void;
+		true ->
+			done = gen_server:call(ExoSelf,memory_reset),
+			gen_server:cast(ExoSelf,{self(),test_fitness,{FitnessType,U_FitnessAcc,get(goal)}}),
+			io:format("Pid:~p Fitness:~p~n",[self(),U_FitnessAcc]),
+			end_training
+	end.
+	
+	vector_add(LA,0,[])->
+		LA;
+	vector_add([A|LA],[B|LB],Acc)->
+		vector_add(LA,LB,[A+B|Acc]);
+	vector_add([],[],Acc)->
+		lists:reverse(Acc).
 			
 championship(ExoSelf,Specie_Id,[{A,Output}|OAcc],FitnessAcc,ProgressAcc)->
 	Name = A#actuator.name,

@@ -1034,7 +1034,7 @@ fx_Internals(CTVL,_SensorId,Parameters)->
 	end.
 	
 abc_pred(CTVL,_SensorId,Parameters)->
-	[TableName,StartIndex,EndIndex,StartBenchIndex,EndBenchIndex] = Parameters,
+	[TableName,StartIndex,EndIndex,StartBenchIndex,EndBenchIndex,StartTestIndex,EndTestIndex] = Parameters,
 	Out=case get(abc_pred) of
 		undefined ->
 			%Result = ets:file2tab(TableName),
@@ -1045,20 +1045,28 @@ abc_pred(CTVL,_SensorId,Parameters)->
 					put(abc_pred,StartIndex),
 					Sequence = ets:lookup_element(TableName,StartIndex,2),
 					%io:format("Sequence:~p~n",[Sequence]),
-					[translate_seq(Char) || Char <- Sequence];
+					lists:flatten([translate_seq(Char) || Char <- Sequence]);
 				benchmark ->%io:format("benchmark~n"),
 					put(abc_pred,StartBenchIndex),
 					Sequence = ets:lookup_element(TableName,StartBenchIndex,2),
-					[translate_seq(Char) || Char <- Sequence]
+					lists:flatten([translate_seq(Char) || Char <- Sequence]);
+				test ->
+					put(abc_pred,StartTestIndex),
+					Sequence = ets:lookup_element(TableName,StartTestIndex,2),
+					lists:flatten([translate_seq(Char) || Char <- Sequence])
 			end;
-		Index ->%io:format("Index:~p~n",[Index]),
+		Ind ->%io:format("Index:~p~n",[Index]),
+			Index = case Ind == 0 of
+				true -> 1;
+				false -> Ind
+			end,
 			Sequence = ets:lookup_element(TableName,Index,2),
-			[translate_seq(Char) || Char <- Sequence]
+			lists:flatten([translate_seq(Char) || Char <- Sequence])
 	end,
 	%io:format("Out:~p~n",[Out]),
 	Out.
 	
-	translate_seq(Char)->
+	translate_seq1(Char)->
 		case Char of
 			65 -> -1;
 			82 -> -0.9;
@@ -1082,7 +1090,30 @@ abc_pred(CTVL,_SensorId,Parameters)->
 			86 -> 0.9;
 			88 -> 1
 		end.
-		
+translate_seq(Char)->
+		case Char of
+			65 -> [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+			82 -> [0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+			78 -> [0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+			68 -> [0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+			67 -> [0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+			69 -> [0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+			81 -> [0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+			71 -> [0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0];
+			72 -> [0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0];
+			73 -> [0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0];
+			76 -> [0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0];
+			75 -> [0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0];
+			77 -> [0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0];
+			70 -> [0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0];
+			80 -> [0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0];
+			83 -> [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0];
+			84 -> [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0];
+			87 -> [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0];
+			89 -> [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0];
+			86 -> [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0];
+			88 -> [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]
+		end.
 %A 	Adenine
 %C 	Cytosine
 %G 	Guanine

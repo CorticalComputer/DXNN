@@ -32,8 +32,8 @@
 -define(EFF,0.05). %Efficiency., TODO: this should further be changed from absolute number of neurons, to diff in lowest or avg, and the highest number of neurons
 -define(INIT_CONSTRAINTS,[#constraint{morphology=Morphology,sc_types=SC_Types, sc_neural_plasticity=[none], sc_hypercube_plasticity=[none],sc_hypercube_linkform = Substrate_LinkForm,sc_neural_linkform=LinkForm}|| Morphology<-[epitopes],Substrate_LinkForm <- [[feedforward]], LinkForm<-[recursive],SC_Types<-[[neural]]]).
 -define(SURVIVAL_PERCENTAGE,0.5).
--define(SPECIE_SIZE_LIMIT,10).
--define(INIT_SPECIE_SIZE,10).
+-define(SPECIE_SIZE_LIMIT,50).
+-define(INIT_SPECIE_SIZE,50).
 %-define(POPULATION_LIMIT,?SPECIE_SIZE_LIMIT*length(?INIT_MORPHOLOGIES)).
 -define(INIT_POPULATION_ID,test).
 %-define(INIT_ARCHITECTURE_TYPE,modular).
@@ -45,7 +45,7 @@
 -define(DIVERSITY_COUNT_STEP,500).
 -define(GEN_UID,technome_constructor:generate_UniqueId()).
 -define(CHAMPION_COUNT_STEP,500).
--define(GOAL_EVALS,25000).
+-define(GOAL_EVALS,15000).
 -record(state,{op_mode,population_id,activeDX_IdPs,inactiveDX_Ids,dx_ids,tot_individuals,individuals_left,op_tag,dx_summaries=[],attempt=0,evaluations_acc=0,step_size,next_step,goal_status,survival_type}).
 %%==================================================================== API
 %%--------------------------------------------------------------------
@@ -623,15 +623,16 @@ mutate_population(Population_Id,KeepTot,Survival_Type)->
 				ChampionDX_Idps;
 			false->
 				ChampionDX_Id = clone_dx(TopDX_Id),
-				case length(ChampionDX_Idps) >= 10 of
-					true ->
-						Valid_ChampionDX_Idps = lists:sublist([{TopDX_Id,ChampionDX_Id}|ChampionDX_Idps],10),
-						Invalid_ChampionDX_Idps =  [{TopDX_Id,ChampionDX_Id}|ChampionDX_Idps] -- Valid_ChampionDX_Idps,
-						[delete_dx(Invalid_ChampionDX_Id)|| {_OriginalDX_Id,Invalid_ChampionDX_Id}<-Invalid_ChampionDX_Idps],
-						Valid_ChampionDX_Idps;
-					false ->
-						[{TopDX_Id,ChampionDX_Id}|ChampionDX_Idps]
-				end
+				%case length(ChampionDX_Idps) >= 10 of
+				%	true ->
+				%		Valid_ChampionDX_Idps = lists:sublist([{TopDX_Id,ChampionDX_Id}|ChampionDX_Idps],10),
+				%		Invalid_ChampionDX_Idps =  [{TopDX_Id,ChampionDX_Id}|ChampionDX_Idps] -- Valid_ChampionDX_Idps,
+				%		[delete_dx(Invalid_ChampionDX_Id)|| {_OriginalDX_Id,Invalid_ChampionDX_Id}<-Invalid_ChampionDX_Idps],
+				%		Valid_ChampionDX_Idps;
+				%	false ->
+				%		[{TopDX_Id,ChampionDX_Id}|ChampionDX_Idps]
+				%end
+				[{TopDX_Id,ChampionDX_Id}|ChampionDX_Idps]
 		end,
 		mnesia:write(S#specie{
 			dx_ids = NewGenDX_Ids,
@@ -767,7 +768,7 @@ delete_population(Population_Id)->
 		DX_Ids = S#specie.dx_ids,
 		ChampionDX_Ids = S#specie.championdx_ids,
 		[delete_dx(DX_Id) || DX_Id <- DX_Ids],
-		[delete_dx(ChampionDX_Id) || {_AncestorDX_Id,ChampionDX_Id} <- ChampionDX_Ids],
+		%[delete_dx(ChampionDX_Id) || {_AncestorDX_Id,ChampionDX_Id} <- ChampionDX_Ids],%TODO: Now we keep the champions...
 		mnesia:delete({specie,Specie_Id}).
 		
 		delete_dx(DX_Id)->
@@ -869,6 +870,7 @@ gather_STATS(Population_Id,EvaluationsAcc)->
 		{Avg_SubCores,SubCores_Std,Avg_Neurons,Neurons_Std} = calculate_SpecieAvgNodes({specie,S}),
 		{AvgFitness,Fitness_Std,MaxFitness,MinFitness} = calculate_SpecieFitness({specie,S}),
 		SpecieDiversity = calculate_SpecieDiversity({specie,S}),
+		GenTest_FitnessP=gt(Specie_Id),
 		STAT = #stat{
 			morphology = S#specie.morphology,
 			specie_id = Specie_Id,
@@ -880,6 +882,7 @@ gather_STATS(Population_Id,EvaluationsAcc)->
 			fitness_std = Fitness_Std,
 			max_fitness=MaxFitness,
 			min_fitness=MinFitness,
+			gentest_fitness = GenTest_FitnessP,
 			avg_diversity=SpecieDiversity,
 			evaluations = Specie_Evaluations,
 			time_stamp=TimeStamp
@@ -1001,6 +1004,26 @@ calculate_PopulationFitness(_Population_Id,[],AvgFAcc,MaxFAcc,MinFAcc)->
 			end;
 		calculate_fitness([],FitnessAcc)->
 			FitnessAcc.
+
+gt(Specie_Id)->
+	ChampionDX_Id = case extract_ChampionDXIds([Specie_Id],[]) of
+		[DX_Id] ->
+			DX_Id;
+		[DX_Id|_] ->
+			DX_Id;
+		[]->
+			void
+	end,
+	case ChampionDX_Id of
+		void ->
+			{0,void};
+		_ ->
+			{ok,ChampionDX_PId}= exoself:start_link({benchmark,ChampionDX_Id,1}),
+			receive
+				{ChampionDX_Id,Fitness,FitnessProfile}->
+					{Fitness,ChampionDX_Id}
+			end
+	end.
 
 conform_SpecieSize(Population_Id)->
 	F = fun()->

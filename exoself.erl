@@ -302,9 +302,20 @@ handle_cast({Cx_Pid,benchmark_fitness,{FitnessType,Fitness,Goal_Status}},S)->
 	{TrueFitness,FitnessProfile} = technome_constructor:construct_FitnessProfile(DX,Fitness),
 	TimeElapsed = integer_to_list(timer:now_diff(now(),StartTime)),
 	io:format("DX_Id:~p::~n OpMode:~p~n TimeElapsed:~pus~n FType:~p~n Fitness:~p~n FProfile:~p~n",[DX#dx.id,OpMode,TimeElapsed,FitnessType,TrueFitness,FitnessProfile]),
-	benchmark ! {DX#dx.id,TrueFitness,FitnessProfile},
+	monitor ! {DX#dx.id,TrueFitness,FitnessProfile},
 	{stop,normal,{OpMode,DX,IdsNPids,{FitnessType,TrueFitness,FitnessProfile}}};
-	
+
+handle_cast({Cx_Pid,test_fitness,{FitnessType,Fitness,Goal_Status}},S)->
+	OpMode = S#state.op_mode,
+	DX=S#state.dx,
+	IdsNPids = S#state.ids_n_pids,
+	StartTime = S#state.start_time,
+	{TrueFitness,FitnessProfile} = technome_constructor:construct_FitnessProfile(DX,Fitness),
+	TimeElapsed = integer_to_list(timer:now_diff(now(),StartTime)),
+	io:format("DX_Id:~p::~n OpMode:~p~n TimeElapsed:~pus~n FType:~p~n Fitness:~p~n FProfile:~p~n",[DX#dx.id,OpMode,TimeElapsed,FitnessType,TrueFitness,FitnessProfile]),
+	[io:format("FITNESS:~p~n",[Val]) || Val <- Fitness],	
+	{stop,normal,{OpMode,DX,IdsNPids,{FitnessType,TrueFitness,FitnessProfile}}};
+
 handle_cast({_Scape_PId,mutant_clone,granted,_DX_PId},S)->
 	DX=S#state.dx,
 	DX_Id = DX#dx.id,
@@ -371,6 +382,8 @@ terminate(Reason, State) ->
 					end;
 				benchmark ->
 					void;
+				test ->
+					ets:insert(potato,{self(),Fitness});
 				_ ->
 					case DX#dx.morphology of
 						flatlander ->
