@@ -1006,7 +1006,9 @@ fx_ListSensor(CTVL,_SensorId,Parameters)->
 			%Normal, assuming we have 10000 rows, we start from 1000 to 6000
 			PId ! {self(),sense,'EURUSD15',close,[HRes,list_sensor],5000,1000};
 		benchmark ->
-			PId ! {self(),sense,'EURUSD15',close,[HRes,list_sensor],1000,last}
+			PId ! {self(),sense,'EURUSD15',close,[HRes,list_sensor],1001,500};
+		test ->
+			PId ! {self(),sense,'EURUSD15',close,[HRes,list_sensor],501,last}
 	end,
 	receive 
 		{_From,Result}->

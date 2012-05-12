@@ -346,3 +346,24 @@ construct_profile(DX_Id)->
 	Summary = DX#dx.summary,
 	Tot_Neurons = Summary#summary.tot_neurons,
 	[0,0,Tot_Neurons].
+read(TnK)->
+	case mnesia:read(TnK) of
+		[] ->
+			undefined;
+		[R] ->
+			R
+	end.
+	
+dirty_read(TnK)->
+	case mnesia:dirty_read(TnK) of
+		[] ->
+			undefined;
+		[R] ->
+			R
+	end.
+
+write(R)->
+	F = fun()->
+		mnesia:write(R)
+	end,
+	mnesia:transaction(F). 

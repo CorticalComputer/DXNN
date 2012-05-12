@@ -14,7 +14,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3, g/1]).
 %% gen_server support_functions
 -export([extract_CurGenNIds/4, extract_NWeightCount/2]).
--record(state, {op_mode,dx,active_nids,ids_n_pids,cx_id,start_time,generation}).
+-record(state, {op_mode,id,pm_pid,dx,active_nids,ids_n_pids,cx_id,start_time,generation}).
 -behaviour(gen_server).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Exoself Options %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -define(MAX_TRIALS_TYPE,individual). %[const,individual,population]
@@ -42,7 +42,7 @@
 %% Description: Starts the server
 %%--------------------------------------------------------------------
 test(OpMode,DX_Id) ->
-	start_link({OpMode,DX_Id,20}).
+	start_link({OpMode,DX_Id,20,monitor}).
 
 start_link(InitOptions) ->
 	gen_server:start_link(?MODULE, InitOptions, []).
@@ -69,7 +69,7 @@ init(Pid,InitState)->
 %%--------------------------------------------------------------------
 init([])->
 	{ok,[]};
-init({OpMode,DX_Id,MT}) ->
+init({OpMode,DX_Id,MT,PM_PId}) ->
 	{A,B,C} = now(),
 	random:seed(A,B,C),
 	[DX] = mnesia:dirty_read({dx,DX_Id}),
@@ -100,7 +100,7 @@ init({OpMode,DX_Id,MT}) ->
 
 	%io:format("DX:~p~n",[DX]),
 	StartTime = now(),
-	InitState = #state{op_mode=OpMode,dx=DX,active_nids=Active_NIds,ids_n_pids=IdsNPids,cx_id=Cx_Id,start_time=StartTime,generation = Generation},
+	InitState = #state{op_mode=OpMode,id = DX_Id,pm_pid = PM_PId,dx=DX,active_nids=Active_NIds,ids_n_pids=IdsNPids,cx_id=Cx_Id,start_time=StartTime,generation = Generation},
 %	io:format("******** ExoSelf:~p started.~n",[self()]),
 	put(tot_mutations,0), %Just to keep track of statistics
 	{ok, InitState}.
@@ -302,7 +302,7 @@ handle_cast({Cx_Pid,benchmark_fitness,{FitnessType,Fitness,Goal_Status}},S)->
 	{TrueFitness,FitnessProfile} = technome_constructor:construct_FitnessProfile(DX,Fitness),
 	TimeElapsed = integer_to_list(timer:now_diff(now(),StartTime)),
 	io:format("DX_Id:~p::~n OpMode:~p~n TimeElapsed:~pus~n FType:~p~n Fitness:~p~n FProfile:~p~n",[DX#dx.id,OpMode,TimeElapsed,FitnessType,TrueFitness,FitnessProfile]),
-	monitor ! {DX#dx.id,TrueFitness,FitnessProfile},
+	S#state.pm_pid ! {DX#dx.id,TrueFitness,FitnessProfile},
 	{stop,normal,{OpMode,DX,IdsNPids,{FitnessType,TrueFitness,FitnessProfile}}};
 
 handle_cast({Cx_Pid,test_fitness,{FitnessType,Fitness,Goal_Status}},S)->
@@ -310,16 +310,17 @@ handle_cast({Cx_Pid,test_fitness,{FitnessType,Fitness,Goal_Status}},S)->
 	DX=S#state.dx,
 	IdsNPids = S#state.ids_n_pids,
 	StartTime = S#state.start_time,
-	{TrueFitness,FitnessProfile} = technome_constructor:construct_FitnessProfile(DX,Fitness),
+	%{TrueFitness,FitnessProfile} = technome_constructor:construct_FitnessProfile(DX,Fitness),
 	TimeElapsed = integer_to_list(timer:now_diff(now(),StartTime)),
-	io:format("DX_Id:~p::~n OpMode:~p~n TimeElapsed:~pus~n FType:~p~n Fitness:~p~n FProfile:~p~n",[DX#dx.id,OpMode,TimeElapsed,FitnessType,TrueFitness,FitnessProfile]),
+	%io:format("DX_Id:~p::~n OpMode:~p~n TimeElapsed:~pus~n FType:~p~n Fitness:~p~n FProfile:~p~n",[DX#dx.id,OpMode,TimeElapsed,FitnessType,TrueFitness,FitnessProfile]),
 	[io:format("FITNESS:~p~n",[Val]) || Val <- Fitness],	
-	{stop,normal,{OpMode,DX,IdsNPids,{FitnessType,TrueFitness,FitnessProfile}}};
+	S#state.pm_pid ! {self(),test_complete,S#state.id,Fitness,TimeElapsed},
+	{stop,normal,{OpMode,DX,IdsNPids,{FitnessType,Fitness,void_fitness_profile}}};
 
 handle_cast({_Scape_PId,mutant_clone,granted,_DX_PId},S)->
 	DX=S#state.dx,
 	DX_Id = DX#dx.id,
-	gen_server:cast(monitor,{request,offspring,DX_Id}),
+	gen_server:cast(S#state.pm_pid,{request,offspring,DX_Id}),
 	{noreply, S};
 handle_cast({_From,terminate},S)->
 	DX=S#state.dx,
@@ -383,7 +384,7 @@ terminate(Reason, State) ->
 				benchmark ->
 					void;
 				test ->
-					ets:insert(potato,{self(),Fitness});
+					void;
 				_ ->
 					case DX#dx.morphology of
 						flatlander ->

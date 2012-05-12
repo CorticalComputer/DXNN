@@ -82,6 +82,36 @@
 	diversity_importance = 0,%Weight of the fingerprint difference, importance for genetic diversity to be part of the fitness function.
 	revenent_prob = 0.1 %probability that a deadpool NN will reavaluate, 10% - 90%
 }).
+
+-record(experiment,{
+	id,
+	backup_flag = true,
+	pm_parameters,
+	init_constraints,
+	progress_flag=in_progress,
+	trace_acc=[],
+	run_index=1,
+	tot_runs=10,
+	notes,
+	started={date(),time()},
+	completed,
+	interruptions=[]
+}).
+
+-record(pmp,{
+	op_mode=gt,
+	population_id=test,
+	survival_percentage=0.5,
+	specie_size_limit=10,
+	init_specie_size=10,
+	polis_id = mathema,
+	generation_limit = 100,
+	evaluations_limit = 100000,
+	fitness_goal = inf,
+	benchmarker_pid,
+	survival_type,
+	specie_constraint
+}).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% LEGEND %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %======================================POLIS======================================
 %scape_id:[Id1...Idn]

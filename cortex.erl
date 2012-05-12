@@ -512,7 +512,7 @@ calculate_IterativeOutput(Densities,Substrate,Input,CT,CF)->
 	
 		update_STail(PrevHypercube,[{Coord,PrevO,PrevWeights}|CurHypercube],Substrate,CT,CF,Acc1,Acc2)->
 %			io:format("PrevHypercube:~p~n Coord:~p~n CT:~p~n CF:~p~n",[PrevHypercube,Coord,CT,CF]),
-			U_O=calculate_output2(PrevHypercube,{Coord,PrevO,PrevWeights},0),
+			U_O=calculate_substrate_output(PrevHypercube,{Coord,PrevO,PrevWeights},0),
 			U_Weights = get_weights(PrevHypercube,Coord,CT,CF,[],PrevWeights,U_O),
 %			io:format("PrevWeights:~p~n U_Weights:~p~n",[PrevWeights,U_Weights]),
 			update_STail(PrevHypercube,CurHypercube,Substrate,CT,CF,[{Coord,U_O,U_Weights}|Acc1],Acc2);
@@ -559,7 +559,8 @@ calculate_HoldOutput(Densities,Substrate,Input)->
 	Populated_SHead = populate_SHead2(SHead,lists:flatten(Input),[]),
 	%Populated_Substrate = lists:append([Populated_SHead],Populated_THead),
 	%io:format("Populated_SHead:~p~n InputP:~p~n",[Populated_SHead,InputP]),
-	calculate_output(Populated_SHead,Populated_STail).
+	{Output,U_Substrate} = calculate_output(Populated_SHead,Populated_STail),
+	{Output,[Populated_SHead|U_Substrate]}.
 
 calculate_ResetOutput(Densities,Substrate,Input,CT,CF,Plasticity)->
 %	Input = [I|| {I_PId,I} <- InputP],
@@ -571,14 +572,16 @@ calculate_ResetOutput(Densities,Substrate,Input,CT,CF,Plasticity)->
 		iterative ->
 			Populated_Substrate = [Populated_ISubstrate|STail],
 		%	io:format("Populated_SHead:~p~n Populated_THead:~p~n Populated_Substrate:~p~n",[Populated_SHead,STail,Populated_Substrate]),
-			{calculate_output(Populated_ISubstrate,STail),Populated_Substrate};
+			{Output,U_Substrate} = calculate_output(Populated_ISubstrate,STail),
+			{Output,[Populated_ISubstrate|U_Substrate]};
 		_ ->%none, modular_none
 			Populated_STail = populate_STail2(Substrate,CT,CF),
 			Populated_Substrate = lists:append([Populated_ISubstrate],Populated_STail),
 			%io:format("Populated_ISubstrate:~p~n Populated_STail:~p~n Populated_Substrate:~p~n",[Populated_ISubstrate,Populated_STail,Populated_Substrate]),
-			{calculate_output(Populated_ISubstrate,Populated_STail),Populated_Substrate}
+			{Output,U_Substrate} =calculate_output(Populated_ISubstrate,Populated_STail),
+			{Output,[Populated_ISubstrate|U_Substrate]}
 	end.
-	
+
 	populate_SHead2([{Coord,PrevO,void}|Substrate],[I|Input],Acc)->
 		populate_SHead2(Substrate,Input,[{Coord,I,void}|Acc]);
 	populate_SHead2([],[],Acc)->
@@ -687,23 +690,23 @@ calculate_ResetOutput(Densities,Substrate,Input,CT,CF,Plasticity)->
 		calculate_output(ISubstrate,Substrate)->
 			case get(link_form) of
 				feedforward ->
-					calculate_output2(ISubstrate,Substrate);
+					calculate_output_ff(ISubstrate,Substrate,[]);
 				%ff_fully_interconnected->%TODO: Variable number of weights for each layer.
 				%	;
 				fully_interconnected ->
-					calculate_output_fi(ISubstrate,Substrate);
+					calculate_output_fi(ISubstrate,Substrate,[]);
 				jordan_recurrent ->
 					[OSubstrate|_] = lists:reverse(Substrate),
-					calculate_output2(lists:flatten([ISubstrate|OSubstrate]),Substrate);
+					calculate_output_ff(lists:flatten([ISubstrate|OSubstrate]),Substrate,[]);
 				neuronself_recurrent ->
-					calculate_output_nsr(ISubstrate,Substrate)
+					calculate_output_nsr(ISubstrate,Substrate,[])
 				%planeself_recurrent ->%TODO: Variable number of weights for each layer
 				%	;
 				%olb_recurrent ->%TODO: One Layer Back recurrency, variable number of weights for each layer.
 				%	void
 			end.
 			
-		calculate_output2(Prev_Hypercube,[Cur_Hypercube|Substrate])->
+		calculate_output_ff(Prev_Hypercube,[Cur_Hypercube|Substrate],Acc)->
 %			io:format("Prev_Hypercube:~p~n",[Prev_Hypercube]),
 %			Val=length(Prev_Hypercube),
 %			Normalizer = case Val == 0 of
@@ -714,31 +717,31 @@ calculate_ResetOutput(Densities,Substrate,Input,CT,CF,Plasticity)->
 %			end,
 %			U_PH=[{Coord,O,Weights}  || {Coord,O,Weights} <- Prev_Hypercube],
 			%U_PH=[{Coord,O+(random:uniform()-0.5)*O*0.5,Weights}  || {Coord,O,Weights} <- Prev_Hypercube],	
-			Updated_CurHypercube = [{Coord,calculate_output2(Prev_Hypercube,{Coord,Prev_O,Weights},0),Weights} || {Coord,Prev_O,Weights} <- Cur_Hypercube],
+			Updated_CurHypercube = [{Coord,calculate_substrate_output(Prev_Hypercube,{Coord,Prev_O,Weights},0),Weights} || {Coord,Prev_O,Weights} <- Cur_Hypercube],
 %			io:format("Updated_CurHypercube:~p~n",[Updated_CurHypercube]),
-			calculate_output2(Updated_CurHypercube,Substrate);
-		calculate_output2(Prev_Hypercube,[])->
+			calculate_output_ff(Updated_CurHypercube,Substrate,[Updated_CurHypercube|Acc]);
+		calculate_output_ff(Prev_Hypercube,[],Acc)->
 %			io:format("id:~p Prev_Hypercube:~p~n",[self(),Prev_Hypercube]),
-			[Output || {_Coord,Output,_Weights} <- Prev_Hypercube].
+			{[Output || {_Coord,Output,_Weights} <- Prev_Hypercube],lists:reverse(Acc)}.
 			
-			calculate_output2([{_I_Coord,O,_I_Weights}|I_Hypercube],{Coord,Prev_O,[Weight|Weights]},Acc)->
-				calculate_output2(I_Hypercube,{Coord,Prev_O,Weights},O*Weight+Acc);
-			calculate_output2([],{Coord,Prev_O,[]},Acc)->
+			calculate_substrate_output([{_I_Coord,O,_I_Weights}|I_Hypercube],{Coord,Prev_O,[Weight|Weights]},Acc)->
+				calculate_substrate_output(I_Hypercube,{Coord,Prev_O,Weights},O*Weight+Acc);
+			calculate_substrate_output([],{Coord,Prev_O,[]},Acc)->
 				functions:tanh(Acc).
-			%calculate_output2(A,B,C)->
+			%calculate_substrate_output(A,B,C)->
 			%	io:format("{A,B,C}:~p~n",[{A,B,C}]).
 			
-		calculate_output_fi(Input_Substrate,[Cur_Hypercube|Substrate])->
-			Updated_CurHypercube = [{Coord,calculate_output2(lists:flatten([Input_Substrate,Cur_Hypercube|Substrate]),{Coord,Prev_O,Weights},0),Weights} || {Coord,Prev_O,Weights} <- Cur_Hypercube],
-			calculate_output_fi([Input_Substrate|Updated_CurHypercube],Substrate);
-		calculate_output_fi(Output_Hypercube,[])->
-			[Output || {_Coord,Output,_Weights} <- Output_Hypercube].
+		calculate_output_fi(Input_Substrate,[Cur_Hypercube|Substrate],Acc)->
+			Updated_CurHypercube = [{Coord,calculate_substrate_output(lists:flatten([Input_Substrate,Cur_Hypercube|Substrate]),{Coord,Prev_O,Weights},0),Weights} || {Coord,Prev_O,Weights} <- Cur_Hypercube],
+			calculate_output_fi([Input_Substrate|Updated_CurHypercube],Substrate,[Updated_CurHypercube|Acc]);
+		calculate_output_fi(Output_Hypercube,[],Acc)->
+			{[Output || {_Coord,Output,_Weights} <- Output_Hypercube],lists:reverse(Acc)}.
 			
-		calculate_output_nsr(Prev_Hypercube,[Cur_Hypercube|Substrate])->
-			Updated_CurHypercube = [{Coord,calculate_output2([{Coord,Prev_O,Weights}|Prev_Hypercube],{Coord,Prev_O,Weights},0),Weights} || {Coord,Prev_O,Weights} <- Cur_Hypercube],
-			calculate_output_nsr(Updated_CurHypercube,Substrate);
-		calculate_output_nsr(Prev_Hypercube,[])->
-			[Output || {_Coord,Output,_Weights} <- Prev_Hypercube].
+		calculate_output_nsr(Prev_Hypercube,[Cur_Hypercube|Substrate],Acc)->
+			Updated_CurHypercube = [{Coord,calculate_substrate_output([{Coord,Prev_O,Weights}|Prev_Hypercube],{Coord,Prev_O,Weights},0),Weights} || {Coord,Prev_O,Weights} <- Cur_Hypercube],
+			calculate_output_nsr(Updated_CurHypercube,Substrate,[Updated_CurHypercube|Acc]);
+		calculate_output_nsr(Prev_Hypercube,[],Acc)->
+			{[Output || {_Coord,Output,_Weights} <- Prev_Hypercube],lists:reverse(Acc)}.
 		
 test(Weight)->
 	Processed_Weight = if 

@@ -213,7 +213,7 @@ epitopes(actuators)->
 		TableName=abc_pred16,
 		StartIndex=561,
 		EndIndex=1400,
-		StartBenchIndex=1401,
+		StartBenchIndex=1,
 		EndBenchIndex=280,
 		StartTestIndex=281,
 		EndTestIndex=560
@@ -225,7 +225,7 @@ epitopes(sensors)->
 		TableName=abc_pred16,
 		StartIndex=561,
 		EndIndex=1400,
-		StartBenchIndex=1401,
+		StartBenchIndex=1,
 		EndBenchIndex=280,
 		StartTestIndex=281,
 		EndTestIndex=560

@@ -13,413 +13,187 @@
 -include("records.hrl").
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Benchmark Options %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -define(DIR,"benchmarks/").
--define(TOT_RUNS,25).
+-define(TOT_RUNS,5).
 -define(DEFAULT_POPULATION_ID,test).
 -define(BENCHMARK_MORPHOLOGIES,[forex_trader]).
 -define(DEFAULT_OPMODE,gt).
 -define(DEFAULT_ST,competition).
--define(CONSTRAINTS,[#constraint{morphology=Morphology,sc_types=SC_Types, sc_hypercube_plasticity=[none],sc_neural_linkform=LinkForm}|| Morphology<-[epitopes],LinkForm<-[feedforward], SC_Types<-[[neural]]]).
--record(state,{pm_parameters,table_name,run_index=1,tot_evaluations=0,tot_generations=0,goal_status,tunning_status,success_acc=[],failure_acc=[],diversity_acc=[]}).
+-define(INIT_CONSTRAINTS,[#constraint{morphology=Morphology,sc_types=SC_Types, sc_hypercube_plasticity=[none],sc_neural_linkform=LinkForm}|| Morphology<-[pole2_balancing3],LinkForm<-[recursive], SC_Types<-[[neural]]]).
+%-record(state,{pm_parameters,table_name,run_index=1,tot_evaluations=0,tot_generations=0,goal_status,tunning_status,success_acc=[],failure_acc=[],diversity_acc=[],trace_acc=[]}).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %Starts and ends Neural Networks with various preset parameters and options, and polls the logger for information about each run.
-r()-> spawn(benchmark,run,[]).
-run()->
-	case whereis(benchmark) of
-		undefined ->
-			io:format("Benchmark server was not started, can not run.~n");
-		PId ->
-			PId ! {self(),start_benchmark},
-			receive 
-				{PId,Results}->
-					io:format("benchmark:r()::Benchmark Results:~p~n",[Results]);
-				Msg ->
-					io:format("Unkown Msg:~p~n",[Msg])
-			end
-	end.
-	
-s()->
-	benchmark ! {undefined,start_benchmark}.
-	
-start()->
-	PId = spawn(benchmark,server,[void]),
+print_experiment(Experiment_Id)->
+	io:format("********~n~p~n*******",[mnesia:dirty_read({experiment,Experiment_Id})]).
+
+start(Id)->
+	PMP = #pmp{
+		op_mode=[gt,benchmark,test],
+		population_id=test,
+		survival_percentage=0.5,
+		survival_type = ?DEFAULT_ST,
+		specie_constraint = ?INIT_CONSTRAINTS,
+		specie_size_limit=10,
+		init_specie_size=10,
+		polis_id = mathema,
+		generation_limit = inf,
+		evaluations_limit = inf,
+		fitness_goal = inf
+	},
+%	Population_Id = test,
+%	OpMode = ?DEFAULT_OPMODE,
+%	Survival_Type = ?DEFAULT_ST,
+%	SpeCons=?CONSTRAINTS,
+%	PM_Parameters = {Population_Id,SpeCons,OpMode,Survival_Type},
+
+	E=#experiment{
+		id = Id,
+		backup_flag = true,
+		pm_parameters=PMP,
+		init_constraints=?INIT_CONSTRAINTS,
+		progress_flag=in_progress,
+		run_index=1,
+		tot_runs=5,
+		started={date(),time()},
+		interruptions=[]
+	},
+	mnesia:dirty_write(E),
+	PId = spawn(benchmark,prep,[E]),
 	register(benchmark,PId).
 
 stop()->
 	benchmark ! {self(),stop}.
 	
-server(void)->
-	erase(),
-	receive
-		{From, start_benchmark}->
-			put(benchmark_requester,From),
-			Population_Id = test,
-			OpMode = ?DEFAULT_OPMODE,
-			Survival_Type = ?DEFAULT_ST,
-			SpeCons=?CONSTRAINTS,
-			PM_Parameters = {Population_Id,SpeCons,OpMode,Survival_Type},
-			TableName = ets:new(benchmark,[private,set]),
-			%State = {PM_Parameters,TableName,1,{0,0},{undefined,undefined},[]},
-			population_monitor:init_population(PM_Parameters),
-			Init_State = #state{
-				pm_parameters=PM_Parameters,
-				table_name=TableName
-			},
-			benchmark:server(Init_State);
-		{_From,start_benchmark,PM_Parameters}->
-			TableName = ets:new(benchmark,[private,set]),
-			%State = {PM_Parameters,TableName,1,{0,0},{undefined,undefined},[]},
-			Init_State = #state{
-				pm_parameters=PM_Parameters,
-				table_name=TableName
-			},
-			population_monitor:init_population(PM_Parameters),
-			benchmark:server(Init_State);
-		{_From,stop}->
-			io:format("Benchmark is shutting down normally.~n");
-		MSG ->
-			io:format("MSG:~p~n",[MSG]),
-			server(void)
-	end;
-server(S) when (S#state.run_index >= ?TOT_RUNS) and (S#state.goal_status == done) and (S#state.tunning_status == done)->
-	%-record(state,{pm_parameters,table_name,run_index=0,tot_evaluations=0,tot_generations=0,goal_status,tunning_status,success_acc=[],failure_acc=[]}).
-	SuccessList = S#state.success_acc,
-	FailureList = S#state.failure_acc,
-	FailureRate = length(FailureList)/?TOT_RUNS,
-	{TE_List,TG_List} = lists:unzip(SuccessList),
-	TE_Avg = lists:sum(TE_List)/length(TE_List),
-	TG_Avg = lists:sum(TG_List)/length(TG_List),
-	Sorted_TE = lists:sort(TE_List),
-	Sorted_TG = lists:sort(TG_List),
-	[TE_Min|_] = Sorted_TE,
-	[TE_Max|_] = lists:reverse(Sorted_TE),
-	[TG_Min|_] = Sorted_TG,
-	[TG_Max|_] = lists:reverse(Sorted_TG),
-	%MTN_List = get(mtn_list),
-	case get(gs_list) of
-		undefined ->
-			Avg_GS = void;
-		GS_List ->
-			Avg_GS = lists:sum(GS_List)/length(GS_List),
-			put(gs_list,undefined)
-	end,
-	%put(mtn_list,undefined),
-	%Avg_MTN = lists:sum(MTN_List)/length(MTN_List),
-	Evaluations_Avg_STD = functions:std(TE_List),
-	Generations_Avg_STD = functions:std(TG_List),
-	%Neurons_Avg_STD = functions:std(MTN_List),
-	%Neurons_Min = lists:min(MTN_List),
-	%Neurons_Max = lists:max(MTN_List),
-	%io:format("DData:~p~n",[S#state.diversity_acc]),
-	DData = functions:avg_diversity(S#state.diversity_acc),
-	%DData = void,
-	io:format("________Benchmark Results Start________ ~n 
-	SuccessList:~p
-	FailureList:~p
-	Diversity {List,Avg,Std}:~p
-	Evaluations Avg:~p 
-	Evaluations StD:~p
-	Generations Avg:~p 
-	Generations StD:~p
-	Evaluations Min:~p 
-	Evaluations Max:~p 
-	Generations Min:~p 
-	Generations Mag:~p 
-	Goals Avg:~p 
-	FailurRate:~p 
-	________Benchmark Results End________ ~n",[SuccessList,FailureList,DData,TE_Avg,Evaluations_Avg_STD,TG_Avg,Generations_Avg_STD,TE_Min,TE_Max,TG_Min,TG_Max,Avg_GS,FailureRate]),
-	Trace_Acc = get(trace_acc),
-	{ok, File} = file:open(?DIR++"generational_benchmark", write),
-	lists:foreach(fun(X) -> io:format(File, "~p.~n",[X]) end, Trace_Acc),
-	file:close(File),%%%%%NOW CALCULATE THE GENTEST AVERAGE AND PERHAPS CALCULATE TESTING BASED STUFF
-	io:format("********Generational Benchmarker: Generational Benchmark complete:~p~n",[Trace_Acc]),
-	Graphs = prepare_Graphs(Trace_Acc),
-	write_Graphs(Graphs,"generational_benchmark"),
-	test(Trace_Acc),
-	case get(benchmark_requester) of
-		undefined->
-			done;
-		From ->
-			From ! {self(),{SuccessList,TE_Avg,TG_Avg,TE_Min,TE_Max,TG_Min,TG_Max,void,Avg_GS,FailureList,FailureRate}}
-	end,
-	ets:delete(S#state.table_name),
-	benchmark:server(void);
+prep(E)->
+%	Population_Id = test,
+%	OpMode = ?DEFAULT_OPMODE,
+%	Survival_Type = ?DEFAULT_ST,
+%	SpeCons=?CONSTRAINTS,
+%	PM_Parameters = {Population_Id,SpeCons,OpMode,Survival_Type},
+%	population_monitor:init_population(PM_Parameters),
 
-server(S) when (S#state.goal_status == goal_reached) and (S#state.tunning_status == tunning_complete)->
-	io:format("Starting GenTest.~p~n",[{S#state.success_acc,S#state.failure_acc}]),
-	Run_Index = S#state.run_index,
-	Trace = gen_server:call(monitor,get_TRACE),
-	case get(trace_acc) of
-		undefined ->
-			put(trace_acc,[Trace]);
-		Trace_Acc ->
-			put(trace_acc,[Trace|Trace_Acc])
-	end,
-	TAcc = get(trace_acc),
-	{ok, File} = file:open(?DIR++"generational_benchmark_partial", write),
-	lists:foreach(fun(X) -> io:format(File, "~p.~n",[X]) end, TAcc),
-	file:close(File),
-	gen_server:cast(monitor,{stop,normal}),timer:sleep(1000),
-	case Run_Index >= ?TOT_RUNS of
-		false ->
-			io:format("******** Benchmark: New population index:~p started.~n",[Run_Index+1]),
-			population_monitor:init_population(S#state.pm_parameters),
-			benchmark:server(S#state{run_index = Run_Index+1,goal_status = undefined,tunning_status = undefined});
-		true ->
-			benchmark:server(S#state{tot_evaluations=0,tot_generations=0,goal_status=done,tunning_status=done})
-	end;
-
-server(S)->
+%	PMP = E#experiment.pm_parameters,
+%	U_PMP = PMP#pmp{benchmarker_pid=self()},
+%	Constraints = E#experiment.init_constraints,
+%	Population_Id = PMP#pmp.population_id,
+%	population_monitor:prep_PopState(U_PMP,Constraints),
+%	loop(E#experiment{pm_parameters=U_PMP},Population_Id).
+	
+	PMP = E#experiment.pm_parameters,
+	U_PMP = PMP#pmp{benchmarker_pid=self()},
+	Constraints = E#experiment.init_constraints,
+	Population_Id = PMP#pmp.population_id,
+	%population_monitor:prep_PopState(U_PMP,Constraints),
+	
+	population_monitor:init_population(U_PMP,Constraints),
+	benchmark:loop(E,Population_Id).
+	
+loop(E,P_Id)->
 	receive	
-		{_From,goal_reached,TotEvaluations,TotGenerations,SimDiv}->
-			gen_server:cast(monitor,{op_tag,pause}),
-			io:format("Benchmark recieved 'goal_reached' msg.~n"),
-			io:format("DiveristyAcc:~p~n",[SimDiv]),
-			%SimDiv = [length(GenerationalDiversity) || GenerationalDiversity <- DiversityAcc],
-			DivAcc = S#state.diversity_acc,
-			server(S#state{goal_status = goal_reached,success_acc=[{TotEvaluations,TotGenerations}|S#state.success_acc],diversity_acc=[SimDiv|DivAcc]});
-		{_From,tunning_phase,done}->
-			%gt(),
-			benchmark:server(S);
-		{_From,goal_failed,TotEvaluations,TotGenerations}->
-			io:format("Goal failed~n"),
-		       benchmark:server(S#state{goal_status=goal_reached,tunning_status=tunning_complete,failure_acc=[{TotEvaluations,TotGenerations}|S#state.failure_acc]});
-		{_From,monitor,paused}->
-			io:format("Benchmark received 'monitor, paused' msg.~n"),
-			benchmark:server(S#state{tunning_status=tunning_complete});
-		{_From,print,gen_list}->
-			case get(generalisation) of
-				undefined ->
-					io:format("No generalization list available.~n");
-				GenList ->
-					GenAvgFitness = functions:avg(GenList),
-					GenAvgFitness_StD = functions:std(GenList),
-					GenMaxFitness = lists:max(GenList),
-					GenMinFitness = lists:min(GenList),
-					io:format("Generalization results:~n GenList:~p~n GenTest:~p~n Avg Fitness:~p Std:~p Max Fitness:~p Min Fitness:~p~n Trace_Acc:~p~n",[GenList,get(gen_test), GenAvgFitness, GenAvgFitness_StD, GenMaxFitness, GenMinFitness, get(trace_acc)])
-			end,
-			benchmark:server(S)
+		{P_Id,completed,Trace}->
+			U_TraceAcc = [Trace|E#experiment.trace_acc],
+			U_RunIndex = E#experiment.run_index+1,
+			case U_RunIndex > E#experiment.tot_runs of
+				true ->
+					U_E = E#experiment{
+						trace_acc = U_TraceAcc,
+						run_index = U_RunIndex,
+						completed = {date(),time()},
+						progress_flag = completed
+					},
+					mnesia:dirty_write(U_E),
+					report(U_E#experiment.id,"report"),
+					case lists:member(test,(U_E#experiment.pm_parameters)#pmp.op_mode) of
+						true ->
+							io:format("E:~p~n",[U_E]),
+							Traces = U_E#experiment.trace_acc,
+							BestGen_Champions = [get_best(Trace) || Trace <- Traces],
+							io:format("BestGen_Champions:~p~n",[BestGen_Champions]),
+							[{BOTB_F,BOTB_Id}|_] = lists:reverse(lists:sort(BestGen_Champions)),
+							io:format("BOTB:~p~n",[{BOTB_F,BOTB_Id}]),
+							BestGen_PIdPs=[{exoself:start_link({test,ExoselfId,1,self()}),ExoselfId} || {GenFitness,ExoselfId} <- BestGen_Champions],
+							io:format("BestGen_PIdPs:~p~n",[BestGen_PIdPs]),
+							BestGen_Results=receive_TestAcks(BestGen_PIdPs,[]),
+							BestGen_Avg = get_avg(BestGen_Results,[]),
+							io:format("BOTB TEST RESULTS:~p~n",[lists:keyfind(BOTB_Id,1,BestGen_Results)]),
+							io:format("************************~n");
+						false ->
+							ok
+					end;
+				false ->
+					U_E = E#experiment{
+						trace_acc = U_TraceAcc,
+						run_index = U_RunIndex
+					},
+					mnesia:dirty_write(U_E),
+					PMP = U_E#experiment.pm_parameters,
+					%Constraints = U_E#experiment.init_constraints,
+					%population_monitor:prep_PopState(PMP,Constraints),
+					U_PMP = PMP#pmp{benchmarker_pid=self()},
+					Constraints = E#experiment.init_constraints,
+					Population_Id = PMP#pmp.population_id,
+					%population_monitor:prep_PopState(U_PMP,Constraints),
+					population_monitor:init_population(U_PMP,Constraints),
+					
+					io:format("****Experiment:~p/~p completed.****~n",[E#experiment.run_index,E#experiment.tot_runs]),
+					loop(U_E,P_Id)
+			end;
+		terminate ->
+			ok
 	end.
 
-test(Traces)->
-	io:format("****TESTING RESULTS****~n"),
-	ets:new(potato,[named_table,set,public]),
-	BestGen_Champions = [get_best(Trace) || Trace <- Traces],
-	[{BOTB_F,BOTB_Id}|_] = lists:reverse(lists:sort(BestGen_Champions)),
-	[exoself:start_link({test,ChampionDX_Id,1}) || {GenFitness,ChampionDX_Id} <- BestGen_Champions],
-	timer:sleep(5000),
-	io:format("BOTB_F:~p BOTB_Id:~p~n",[BOTB_F,BOTB_Id]),
-	exoself:start_link({test,BOTB_Id,1}),
-	timer:sleep(5000),
-	get_avg(ets:first(potato),[],[],[]),
-	ets:delete(potato).
+	receive_TestAcks([{{ok,PId},Id}|PIdPs],Acc)->
+		receive
+			{PId,test_complete,Id,Fitness,Time} ->
+				receive_TestAcks(PIdPs,[{Id,Fitness}|Acc])
+		end;
+	receive_TestAcks([],Acc)->
+		Acc.
+		
 	
 	get_best(T)->
-		io:format("get_best(Trace):~p~n",[T]),
 		Stats = T#trace.stats,
 		GenTest_Champions=[Stat#stat.gentest_fitness || [Stat] <- Stats],
 		[Best|_]=lists:reverse(lists:sort(GenTest_Champions)),
 		Best.
 	
-	get_avg('$end_of_table',Acc1,Acc2,Acc3)->
-		io:format("Fitness:~p~n TruePositive:~p~n TrueNegative:~p~n",[
-			{functions:avg(Acc1),functions:std(Acc1),lists:max(Acc1),lists:min(Acc1),functions:avg(Acc1)/280},
-			{functions:avg(Acc2),functions:std(Acc2),lists:max(Acc2),lists:min(Acc2),functions:avg(Acc2)/140},
-			{functions:avg(Acc3),functions:std(Acc3),lists:max(Acc3),lists:min(Acc3),functions:avg(Acc3)/140}
-		]);
-	get_avg(Key,Acc1,Acc2,Acc3)->
-		[Fitness,TP,TN] = ets:lookup_element(potato,Key,2),
-		get_avg(ets:next(potato,Key),[Fitness|Acc1],[TP|Acc2],[TN|Acc3]).
-
-gen_test1()->
-	TopDX_Id = case gen_server:call(monitor,{request,topDX_Ids}) of
-		[DX_Id] ->
-			DX_Id;
-		[DX_Id|_] ->
-			DX_Id
-	end,
-	case ?BENCHMARK_MORPHOLOGIES of
-		void -> %{pole2_balancing,3} ->
-			case p2b_LongRun([TopDX_Id],[]) of
-				{passed,SurvivingTopDX_Ids} ->
-					case p2b_GenRun(SurvivingTopDX_Ids) of
-						{passed,GenScore,TotNeurons} ->
-							{passed,GenScore,TotNeurons};
-						failed ->
-							failed
-					end;
-				failed ->
-					failed
-			end;
-		_ ->
-			technome_constructor:view_dx(TopDX_Id),
-			[DX] = mnesia:dirty_read({dx,TopDX_Id}),
-			Summary = DX#dx.summary,
-			%{value,{tot_neurons,TotNeurons}} = lists:keysearch(tot_neurons, 1, Summary),
-			TotNeurons = Summary#summary.tot_neurons,
-			case get(mtn_list) of
-				undefined ->
-					put(mtn_list,[TotNeurons]);
-				MTN_List ->
-					put(mtn_list,[TotNeurons|MTN_List])
-			end,
-			{passed,void,TotNeurons}
-	end.
-	
-	p2b_LongRun([DX_Id|DX_Ids],Acc)->
-		io:format("LongRun started, DX_Id:~p~n",[DX_Id]),
-		Angle1 = 1*(2*math:pi()/360),
-		Angle2 = 0,
-		GoalTimeSteps = 100000,
-		MaxTimeSteps = 100000,
-		States = [{0,0,Angle1,0,Angle2,0,1,GoalTimeSteps,MaxTimeSteps,0}],
-		Score = dpb_GenTest(DX_Id,States,0),
-		case Score == 1 of
-			true ->
-				p2b_LongRun(DX_Ids,[DX_Id|Acc]);
-			false ->
-				p2b_LongRun(DX_Ids,Acc)
-		end;
-	p2b_LongRun([],Acc)->
-		case Acc of
-			[] ->
-				failed;
-			SurvivingDX_Ids ->
-				{passed,SurvivingDX_Ids}
-		end.
-	
-	p2b_GenRun(DX_Ids)->				
-		io:format("GenRun started, DX_Ids:~p~n",[DX_Ids]),
-		{Top_GenScore,TotNeurons,TopDX_Id} = test_winners(DX_Ids,[]),
-		case Top_GenScore > 200 of
-			true ->
-				io:format("GenTest passed with:~p~n",[Top_GenScore]),
-				case get(mtn_list) of
-					undefined ->
-						put(mtn_list,[TotNeurons]);
-					MTN_List ->
-						put(mtn_list,[TotNeurons|MTN_List])
-				end,
-				case get(gs_list) of
-					undefined ->
-						put(gs_list,[Top_GenScore]);
-					GS_List ->
-						put(gs_list,[Top_GenScore|GS_List])
-				end,
-				{passed,Top_GenScore,TotNeurons};
-			false ->
-				io:format("GenTest failed with:~p~n",[Top_GenScore]),
-				failed
-		end.
-
-
-		test_winners([DX_Id|Winners],Acc)->
-			Rad2Angle = 2*math:pi()/360,
-
-			PAngleLimit = Rad2Angle*3.6, %0.06283152 = 3.6 degrees
-			PAngleRange = PAngleLimit*2,
-			PVelLimit = Rad2Angle*8.6,   %0.15009752 = 8.6 degrees
-			PVelRange = PVelLimit*2,
-			CPosRange = 2.16*2,
-			CVelRange = 1.35*2,
-			Set = [0.05,0.25,0.5,0.75,0.95],
-			States = [{-2.16+CPs*CPosRange,-1.35+CVs*CVelRange,-PAngleLimit+ PA1s*PAngleRange,-PVelLimit+ PV1s*PVelRange,0,0,1,1000,1000,0}||CPs<-Set,CVs<-Set,PA1s<-Set,PV1s<-Set],
-			GenScore  = dpb_GenTest(DX_Id,States,0),
-			io:format("GenScore:~p~n",[GenScore]),
-			test_winners(Winners,[{GenScore,DX_Id}|Acc]);
-		test_winners([],Acc)->
-			[{GenScore, DX_Id}|_] = lists:reverse(lists:sort(Acc)),
-			[DX] = mnesia:dirty_read({dx,DX_Id}),
-			Summary = DX#dx.summary,
-			%{value,{tot_neurons,Tot_Neurons}} = lists:keysearch(tot_neurons, 1, Summary),
-			Tot_Neurons = Summary#summary.tot_neurons,
-			{GenScore,Tot_Neurons,DX_Id}.
-	
-	dpb_GenTest(DX_Id,[State|States],Acc)->
-		exoself:test(benchmark,DX_Id),
-		receive
-			{From,get_dpb_state} ->
-				From ! {dpb_state,State},
-				receive
-					{From,goal_status,Goal} ->
-						%io:format("Goal:~p~n",[Goal]),
-						Score = case Goal of
-							reached ->
-								1;
-							undefined ->
-								0
-						end,
-						%timer:sleep(100),
-						dpb_GenTest(DX_Id,States,Acc+Score)
-				end
-		end;
-	dpb_GenTest(DX_Id,[],Acc)->
-		Acc.
+	get_avg([{Id,FitnessP}|IdPs],Acc)->
+		get_avg(IdPs,[FitnessP|Acc]);
+	get_avg([],Acc)->
+		get_avg(Acc,[],[],[]).
 		
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% ALife Benchmarker %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-alife_benchmark(TotRuns)->
-	alife_benchmark(void,TotRuns,5000).
-
-alife_benchmark(Config,TotRuns,RunLength)->
-	HeartBeat = 10000,
-	register(alife_benchmarker,spawn(benchmark,alife_benchmark,[Config,TotRuns,RunLength,done,HeartBeat,[]])).
-
-alife_benchmark(Config,Index,RunLength,done,HeartBeat,Acc)->
-	case Index of
-		0 ->
-			{ok, File} = file:open(?DIR++"alife_benchmark", write),
-			lists:foreach(fun(X) -> io:format(File, "~p.~n",[X]) end, Acc),
-			file:close(File),
-			io:format("********ALife Benchmarker: ALife Benchmark complete:~p~n",[Acc]),
-			Graphs = prepare_Graphs(Acc),
-			write_Graphs(Graphs,"alife_benchmark");
-		_ ->
-			{ok, File} = file:open(?DIR++"alife_benchmark_partial", write),
-			lists:foreach(fun(X) -> io:format(File, "~p.~n",[X]) end, Acc),
-			file:close(File),
-			io:format("********ALife Benchmarker: ALife simulation benchmarks left:~p~n",[Index-1]),
-			population_monitor:test(),
-			benchmark:alife_benchmark(Config,Index-1,RunLength,continue,HeartBeat,Acc)
-	end;
-alife_benchmark(Config,Index,RunLength,State,Heartbeat,Acc)->
-	receive
-		terminate ->
-			FilePath = ?DIR++"alife_benchmark_terminated",
-			{ok, File} = file:open(FilePath, write),
-			lists:foreach(fun(X) -> io:format(File, "~p.~n",[X]) end, Acc),
-			file:close(File),
-			io:format("********ALife Benchmarker Terminated, Traces written to:~p~n",[FilePath]);
-		{change_HeartBeat,New_Heartbeat}->
-			benchmark:alife_benchmark(Config,Index,RunLength,State,New_Heartbeat,Acc)
-	after Heartbeat ->
-		Evaluations = gen_server:call(monitor,get_evaluations),
-		case Evaluations >= RunLength of
-			true ->
-				Trace = gen_server:call(monitor,get_TRACE),
-				ok = gen_server:call(monitor,terminate),
-				timer:sleep(10000),
-				io:format("********ALife Benchmarker: Population Monitor Terminated~n"),
-				polis:stop(),
-				io:format("********ALife Benchmarker: Polis Stopped~n"),
-				timer:sleep(10000),
-				polis:start(),
-				io:format("********ALife Benchmarker: Polis Started~n"),
-				timer:sleep(10000),
-				benchmark:alife_benchmark(Config,Index,RunLength,done,Heartbeat,[Trace|Acc]);
-			false ->
-				benchmark:alife_benchmark(Config,Index,RunLength,State,Heartbeat,Acc)
-		end
-	end.
+		get_avg([Fitness|FitnessPs],Acc1,Acc2,Acc3)->
+			%io:format("Fitness:~p~n",[{Fitness,FitnessPs}]),
+			case Fitness of
+				[Score|Scores] ->
+			%		io:format("Score/Scores:~p~n",[{Score,Scores}]),
+					get_avg(FitnessPs,[Score|Acc1],[Scores|Acc2],Acc3);
+				[] ->
+					get_avg(FitnessPs,Acc1,Acc2,Acc3)
+			end;
+		get_avg([],[],[],Acc3)->
+			io:format("Top validation score based agent's test fitness:~n"),
+			[io:format("~p~n",[{functions:avg(Score),functions:std(Score),lists:max(Score),lists:min(Score)}]) || Score <- lists:reverse(Acc3)];
+		get_avg([],Acc1,Acc2,Acc3)->
+			%io:format("Acc1:~p~n",[Acc1]),
+			get_avg(Acc2,[],[],[Acc1|Acc3]).
+		
 	
--record(graph,{morphology,avg_neurons=[],neurons_std=[],avg_fitness=[],fitness_std=[],max_fitness=[],avgmax_fitness=[],min_fitness=[],avgmin_fitness=[],gentest_fitness=[],avg_diversity=[],diversity_std=[],evaluations=[],evaluation_Index=[]}).
--record(avg,{avg_neurons=[],neurons_std=[],avg_fitness=[],fitness_std=[],max_fitness=[],avgmax_fitness=[],min_fitness=[],avgmin_fitness=[],gentest_fitness=[],avg_diversity=[],diversity_std=[],evaluations=[]}).
-pg(FileName)->
-	pg(FileName,FileName).
-pg(FileName,Graph_Postfix)->
-	{ok,Traces} = file:consult(FileName),
-	io:format("Traces:~p~n",[Traces]),
+
+report(Experiment_Id,FileName)->
+	[E] = mnesia:dirty_read({experiment,Experiment_Id}),
+	Traces = E#experiment.trace_acc,
+	{ok, File} = file:open(?DIR++FileName++"_Trace_Acc", write),
+	lists:foreach(fun(X) -> io:format(File, "~p.~n",[X]) end, Traces),
+	file:close(File),
+	io:format("******** Traces_Acc written to file:~p~n",[?DIR++FileName++"_Trace_Acc"]),
 	Graphs = prepare_Graphs(Traces),
-	write_Graphs(Graphs,Graph_Postfix).
+	write_Graphs(Graphs,FileName++"_Graphs"),
+	Eval_List = [T#trace.tot_evaluations||T<-Traces],
+	io:format("Tot Evaluations Avg:~p Std:~p~n",[functions:avg(Eval_List),functions:std(Eval_List)]).
+
+-record(graph,{morphology,avg_neurons=[],neurons_std=[],avg_fitness=[],fitness_std=[],max_fitness=[],min_fitness=[],maxavg_fitness=[],minavg_fitness=[],avg_diversity=[],diversity_std=[],evaluations=[],gentest_fitness=[],gentestmax_fitness=[],gentestmin_fitness=[],evaluation_Index=[]}).
+-record(avg,{avg_neurons=[],neurons_std=[],avg_fitness=[],fitness_std=[],max_fitness=[],min_fitness=[],maxavg_fitness,minavg_fitness,avg_diversity=[],diversity_std=[],evaluations=[],gentest_fitness=[],gentestmax_fitness=[],gentestmin_fitness=[]}).
+%-record(stat,{avg_subcores,subcores_std,avg_neurons,neurons_std,avg_fitness,fitness_std,max_fitness,min_fitness,avg_diversity,evaluations,time_stamp}).
 
 prepare_Graphs(Traces)->
 %Each trace is composed of a list of lists of stats. Length of list of stats determines the number of species.... we need to graph that so that we can graph the features against evaluations.
@@ -428,20 +202,14 @@ prepare_Graphs(Traces)->
 %3. Extract from each stats the various features against evaluations
 %4. Combine the whatever from all stats from all traces into the averages.
 		[T|_] = Traces,
-%		io:format("T:~p~n",[T]),
 		[Stats_List|_] = T#trace.stats,
-%		io:format("Stats_List:~p~n",[Stats_List]),
-		TotMorphologies = length(Stats_List),
 		Morphologies = [S#stat.morphology || S<-Stats_List],
-%		io:format("Morphologies:~p~n",[Morphologies]),
 		Morphology_Graphs = [prep_Traces(Traces,Morphology,[])|| Morphology <- Morphologies],
 		[io:format("Graph:~p~n",[Graph])|| Graph<-Morphology_Graphs],
 		Morphology_Graphs.
 		
 	prep_Traces([T|Traces],Morphology,Acc)->
-%		io:format("Morphology:~p~n",[Morphology]),
 		Morphology_Trace = lists:flatten([[S||S<-Stats,S#stat.morphology == Morphology]||Stats<-T#trace.stats]),
-%		io:format("T:~p~nMorphology_Traces:~p~n",[T,Morphology_Trace]),
 		prep_Traces(Traces,Morphology,[Morphology_Trace|Acc]);
 	prep_Traces([],Morphology,Acc)->
 		Graph = avg_MorphologicalTraces(lists:reverse(Acc),[],[],[]),
@@ -467,8 +235,12 @@ prepare_Graphs(Traces)->
 						fitness_std = [Avg#avg.fitness_std|Graph#graph.fitness_std],
 						max_fitness = [Avg#avg.max_fitness|Graph#graph.max_fitness],
 						min_fitness = [Avg#avg.min_fitness|Graph#graph.min_fitness],
-						gentest_fitness = [Avg#avg.gentest_fitness|Graph#graph.gentest_fitness],
+						maxavg_fitness = [Avg#avg.maxavg_fitness|Graph#graph.maxavg_fitness],
+						minavg_fitness = [Avg#avg.minavg_fitness|Graph#graph.minavg_fitness],
 						evaluations = [Avg#avg.evaluations|Graph#graph.evaluations],
+						gentest_fitness = [Avg#avg.gentest_fitness|Graph#graph.gentest_fitness],
+						gentestmax_fitness = [Avg#avg.gentestmax_fitness|Graph#graph.gentestmax_fitness],
+						gentestmin_fitness = [Avg#avg.gentestmin_fitness|Graph#graph.gentestmin_fitness],
 						avg_diversity = [Avg#avg.avg_diversity|Graph#graph.avg_diversity],
 						diversity_std = [Avg#avg.diversity_std|Graph#graph.diversity_std]
 					},
@@ -480,28 +252,24 @@ prepare_Graphs(Traces)->
 						avg_fitness = lists:reverse(Graph#graph.avg_fitness),
 						fitness_std = lists:reverse(Graph#graph.fitness_std),
 						max_fitness = lists:reverse(Graph#graph.max_fitness),
-						avgmax_fitness = lists:reverse(Graph#graph.max_fitness),
 						min_fitness = lists:reverse(Graph#graph.min_fitness),
-						avgmin_fitness = lists:reverse(Graph#graph.min_fitness),
-						gentest_fitness = lists:reverse(Graph#graph.gentest_fitness),
 						evaluations = lists:reverse(Graph#graph.evaluations),
+						gentest_fitness = lists:reverse(Graph#graph.gentest_fitness),
 						avg_diversity = lists:reverse(Graph#graph.avg_diversity),
 						diversity_std = lists:reverse(Graph#graph.diversity_std)
 					}.
-				
+
 				avg_stats([S|STail],Avg)->
-					{GenTest_Fitness,Champion_Id}= S#stat.gentest_fitness,
+					{GenTest_Fitness,ChampionId} = S#stat.gentest_fitness,
 					U_Avg = Avg#avg{
 						avg_neurons = [S#stat.avg_neurons|Avg#avg.avg_neurons],
-						neurons_std = [S#stat.neurons_std|Avg#avg.neurons_std],
+						%neurons_std = [S#stat.neurons_std|Avg#avg.neurons_std],
 						avg_fitness = [S#stat.avg_fitness|Avg#avg.avg_fitness],
-						fitness_std = [S#stat.fitness_std|Avg#avg.fitness_std],
+						%fitness_std = [S#stat.fitness_std|Avg#avg.fitness_std],
 						max_fitness = [S#stat.max_fitness|Avg#avg.max_fitness],
-						avgmax_fitness = [S#stat.max_fitness|Avg#avg.max_fitness],
 						min_fitness = [S#stat.min_fitness|Avg#avg.min_fitness],
-						avgmin_fitness = [S#stat.min_fitness|Avg#avg.min_fitness],
-						gentest_fitness = [GenTest_Fitness|Avg#avg.gentest_fitness],
 						evaluations = [S#stat.evaluations|Avg#avg.evaluations],
+						gentest_fitness = [GenTest_Fitness|Avg#avg.gentest_fitness],
 						avg_diversity = [S#stat.avg_diversity|Avg#avg.avg_diversity]
 					},
 					avg_stats(STail,U_Avg);
@@ -511,12 +279,14 @@ prepare_Graphs(Traces)->
 						neurons_std=functions:std(Avg#avg.avg_neurons),
 						avg_fitness=functions:avg(Avg#avg.avg_fitness),
 						fitness_std=functions:std(Avg#avg.avg_fitness),
-						avgmax_fitness=functions:avg(Avg#avg.max_fitness),
 						max_fitness=lists:max(Avg#avg.max_fitness),
-						avgmin_fitness=functions:avg(Avg#avg.min_fitness),
 						min_fitness=lists:min(Avg#avg.min_fitness),
-						gentest_fitness=functions:avg(Avg#avg.gentest_fitness),
+						maxavg_fitness=functions:avg(Avg#avg.max_fitness),
+						minavg_fitness=functions:avg(Avg#avg.min_fitness),
 						evaluations=functions:avg(Avg#avg.evaluations),
+						gentest_fitness=functions:avg(Avg#avg.gentest_fitness),
+						gentestmax_fitness=lists:max(Avg#avg.gentest_fitness),
+						gentestmin_fitness=lists:min(Avg#avg.gentest_fitness),
 						avg_diversity=functions:avg(Avg#avg.avg_diversity),
 						diversity_std=functions:std(Avg#avg.avg_diversity)
 					}.
@@ -535,19 +305,17 @@ write_Graphs([G|Graphs],Graph_Postfix)->
 	lists:foreach(fun({X,Y}) -> io:format(File, "~p ~p~n",[X,Y]) end, lists:zip(U_G#graph.evaluation_Index,U_G#graph.max_fitness)),
 	io:format(File,"~n~n#Avg. Min Fitness Vs Evaluations, Morphology:~p~n",[Morphology]),
 	lists:foreach(fun({X,Y}) -> io:format(File, "~p ~p~n",[X,Y]) end, lists:zip(U_G#graph.evaluation_Index,U_G#graph.min_fitness)),
-	
-	io:format(File,"~n~n#Avg. AvgMax Fitness Vs Evaluations, Morphology:~p~n",[Morphology]),
-	lists:foreach(fun({X,Y}) -> io:format(File, "~p ~p~n",[X,Y]) end, lists:zip(U_G#graph.evaluation_Index,U_G#graph.avgmax_fitness)),
-	io:format(File,"~n~n#Avg. AvgMin Fitness Vs Evaluations, Morphology:~p~n",[Morphology]),
-	lists:foreach(fun({X,Y}) -> io:format(File, "~p ~p~n",[X,Y]) end, lists:zip(U_G#graph.evaluation_Index,U_G#graph.avgmin_fitness)),
-	io:format(File,"~n~n#Avg. ValidationAvgFitness Fitness Vs Evaluations, Morphology:~p~n",[Morphology]),
-	lists:foreach(fun({X,Y}) -> io:format(File, "~p ~p~n",[X,Y]) end, lists:zip(U_G#graph.evaluation_Index,U_G#graph.gentest_fitness)),
-	
 	io:format(File,"~n~n#Specie-Population Turnover Vs Evaluations, Morphology:~p~n",[Morphology]),
 	lists:foreach(fun({X,Y}) -> io:format(File, "~p ~p~n",[X,Y]) end, lists:zip(U_G#graph.evaluation_Index,U_G#graph.evaluations)),
+	io:format(File,"~n~n#GenTest Avg Fitness Vs Evaluations, Morphology:~p~n",[Morphology]),
+	lists:foreach(fun({X,Y}) -> io:format(File, "~p ~p~n",[X,Y]) end, lists:zip(U_G#graph.evaluation_Index,U_G#graph.gentest_fitness)),
+	io:format(File,"~n~n#GenTest Max Fitness Vs Evaluations, Morphology:~p~n",[Morphology]),
+	lists:foreach(fun({X,Y}) -> io:format(File, "~p ~p~n",[X,Y]) end, lists:zip(U_G#graph.evaluation_Index,U_G#graph.gentestmax_fitness)),
+	io:format(File,"~n~n#GenTest Min Fitness Vs Evaluations, Morphology:~p~n",[Morphology]),
+	lists:foreach(fun({X,Y}) -> io:format(File, "~p ~p~n",[X,Y]) end, lists:zip(U_G#graph.evaluation_Index,U_G#graph.gentestmin_fitness)),
 	file:close(File),
 	write_Graphs(Graphs,Graph_Postfix);
-write_Graphs([],Graph_Postfix)->
+write_Graphs([],_Graph_Postfix)->
 	ok.
 		
 unconsult(List)->
@@ -555,60 +323,32 @@ unconsult(List)->
 	lists:foreach(fun(X) -> io:format(File, "~p~n",[X]) end, List),
 	file:close(File).
 	
-genplot_avg(Lists)->
-	genplot_avg(Lists,[],[],[]).
+gen_plot(Lists)->gen_plot(Lists,[],[],[]).
 
-genplot_avg([List|Lists],Acc1,Acc2,Acc3)->
+gen_plot([List|Lists],Acc1,Acc2,Acc3)->
 	case List of
 		[Val|Rem] ->
-			genplot_avg(Lists,[Rem|Acc1],[Val|Acc2],Acc3);
+			gen_plot(Lists,[Rem|Acc1],[Val|Acc2],Acc3);
 		[] ->
-			StepSize=25000/length(Acc3),
-			print_plot(StepSize,StepSize,Acc3)
+			print_plot(500,Acc3)
 	end;
-genplot_avg([],Acc1,Acc2,Acc3)->
-	genplot_avg(Acc1,[],[],[{functions:avg(Acc2),functions:std(Acc2)}|Acc3]).
+gen_plot([],Acc1,Acc2,Acc3)->
+	gen_plot(Acc1,[],[],[functions:avg(Acc2)|Acc3]).
 
-genplot_max(Lists)->
-	genplot_max(Lists,[],[],[]).
-genplot_max([List|Lists],Acc1,Acc2,Acc3)->
-	case List of
-		[Val|Rem] ->
-			genplot_max(Lists,[Rem|Acc1],[Val|Acc2],Acc3);
-		[] ->
-			StepSize=25000/length(Acc3),
-			print_plot(StepSize,StepSize,Acc3)
-	end;
-genplot_max([],Acc1,Acc2,Acc3)->
-	genplot_max(Acc1,[],[],[{lists:max(Acc2),0}|Acc3]).
-
-
-
-genplot_all(Lists)->
-	genplot_all(Lists,[],[],[]).
-genplot_all([List|Lists],Acc1,Acc2,Acc3)->
-	case List of
-		[Val|Rem] ->
-			genplot_all(Lists,[Rem|Acc1],[Val|Acc2],Acc3);
-		[] ->
-			StepSize=25000/length(Acc3),
-			print_plot(StepSize,StepSize,Acc3)
-	end;
-genplot_all([],Acc1,Acc2,Acc3)->
-	genplot_all(Acc1,[],[],[{functions:avg(Acc2),lists:min(Acc2),lists:max(Acc2)}|Acc3]).
+	genplot(Lists)->genplot(Lists,[]).
+	genplot([L|Lists],Acc)->
+		genplot(Lists,[lists:max(L)|Acc]);
+	genplot([],Acc)->
+		print_plot(0,lists:reverse(Acc)).
 		
-	print_plot(Index,[{Val,Std}|List])->
-		io:format("~p  ~p  ~p~n",[Index,Val,Std]),
+	print_plot(Index,[Val|List])->
+		io:format("~p  ~p~n",[Index,Val]),
 		print_plot(Index+500,List);
-	print_plot(Index,[])->
+	print_plot(_Index,[])->
 		void.
-
 		
-	print_plot(Index,StepSize,[{Val,Std}|List])->
-		io:format("~p  ~p  ~p~n",[Index,Val,Std]),
-		print_plot(Index+StepSize,StepSize,List);
-	print_plot(Index,StepSize,[{Val,YLow,YHigh}|List])->
-		io:format("~p  ~p  ~p ~p~n",[Index,Val,YLow,YHigh]),
-		print_plot(Index+StepSize,StepSize,List);
-	print_plot(_Index,_SteoSize,[])->
-		ok.
+trace2graph(TraceFileName)->
+	{ok,Traces} = file:consult(TraceFileName),
+	io:format("Traces:~p~n",[Traces]),
+	Graphs = prepare_Graphs(Traces),
+	write_Graphs(Graphs,TraceFileName++"_Graph").

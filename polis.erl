@@ -173,7 +173,8 @@ create()->
 	mnesia:create_table(avatar,[{disc_copies, [node()]},{type,set},{attributes, record_info(fields,avatar)}]),
 	mnesia:create_table(object,[{disc_copies, [node()]},{type,set},{attributes, record_info(fields,object)}]),
 	mnesia:create_table(e,[{disc_copies, [node()]},{type,set},{attributes, record_info(fields,e)}]),
-	mnesia:create_table(a,[{disc_copies, [node()]},{type,set},{attributes, record_info(fields,a)}]).
+	mnesia:create_table(a,[{disc_copies, [node()]},{type,set},{attributes, record_info(fields,a)}]),
+	mnesia:create_table(experiment,[{disc_copies, [node()]},{type,set},{attributes, record_info(fields,experiment)}]).
 
 reset()->
 	mnesia:stop(),
@@ -186,7 +187,7 @@ start_supmods([ModName|ActiveMods])->
 	ModName:start(),
 	start_supmods(ActiveMods);
 start_supmods([])->
-	benchmark:start(),
+	%benchmark:start(),
 	logger:start(),
 	done.
 		
@@ -199,7 +200,7 @@ stop_supmods([ModName|ActiveMods])->
 	ModName:stop(),
 	stop_supmods(ActiveMods);
 stop_supmods([])->
-	benchmark:stop(),
+	%benchmark:stop(),
 	logger:stop(),
 	done.
 	

@@ -161,8 +161,6 @@ spear(ExoSelf,Output,ActuatorId,Parameters)->
 shoot(ExoSelf,Output,ActuatorId,Parameters)->
 	{Progress,Fitness}=gen_server:call(get(scape),{actuator,get(morphology),shoot,Output}).
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Pole balancing actuator %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%Output: [Force], used to push a cart, between -1 and 1, scaled. with -1 pushing in the oposite direction of 1.
 fx_Trade(ExoSelf,Output,ActuatorId,Parameters)->
 	case get(fx_pid) of
 		undefined ->
@@ -174,9 +172,14 @@ fx_Trade(ExoSelf,Output,ActuatorId,Parameters)->
 	[TradeSignal] = Output,
 	PId ! {self(),trade,'EURUSD15',functions:trinary(TradeSignal)},
 	receive 
-		{From,Result}->
+		{From,{Progress,Fitness}}->
 %			io:format("Result:~p~n",[Result]),
-			Result
+			case get(opmode) of
+				test ->
+					{Progress,[Fitness,0,0]};
+				_ ->
+					{Progress,Fitness}
+			end
 	end.
 	
 abc_pred(ExoSelf,[Output],ActuatorId,Parameters)->

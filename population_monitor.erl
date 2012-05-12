@@ -10,7 +10,7 @@
 -include("records.hrl").
 %-compile(export_all).
 %% API
--export([start_link/1,start_link/0,start/1,start/0,stop/0,init/2,init_population/1,continue/2,extract_DXIds/2,delete_population/1,championship/0,champion/0]).
+-export([start_link/1,start_link/0,start/1,start/0,stop/0,init/2,init_population/1,init_population/2,continue/2,extract_DXIds/2,delete_population/1,championship/0,champion/0]).
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3,create_MutantDXCopy/1,test/0,new/0,reset/0,backup/0,info/1]).
 
@@ -32,8 +32,8 @@
 -define(EFF,0.05). %Efficiency., TODO: this should further be changed from absolute number of neurons, to diff in lowest or avg, and the highest number of neurons
 -define(INIT_CONSTRAINTS,[#constraint{morphology=Morphology,sc_types=SC_Types, sc_neural_plasticity=[none], sc_hypercube_plasticity=[none],sc_hypercube_linkform = Substrate_LinkForm,sc_neural_linkform=LinkForm}|| Morphology<-[epitopes],Substrate_LinkForm <- [[feedforward]], LinkForm<-[recursive],SC_Types<-[[neural]]]).
 -define(SURVIVAL_PERCENTAGE,0.5).
--define(SPECIE_SIZE_LIMIT,50).
--define(INIT_SPECIE_SIZE,50).
+-define(SPECIE_SIZE_LIMIT,10).
+-define(INIT_SPECIE_SIZE,10).
 %-define(POPULATION_LIMIT,?SPECIE_SIZE_LIMIT*length(?INIT_MORPHOLOGIES)).
 -define(INIT_POPULATION_ID,test).
 %-define(INIT_ARCHITECTURE_TYPE,modular).
@@ -41,11 +41,10 @@
 -define(OP_MODE,gt).
 -define(INIT_POLIS,mathema).
 -define(GENERATION_LIMIT,1000).
--define(EVALUATIONS_LIMIT,1000000).
+-define(EVALUATIONS_LIMIT,inf).
 -define(DIVERSITY_COUNT_STEP,500).
 -define(GEN_UID,technome_constructor:generate_UniqueId()).
 -define(CHAMPION_COUNT_STEP,500).
--define(GOAL_EVALS,15000).
 -record(state,{op_mode,population_id,activeDX_IdPs,inactiveDX_Ids,dx_ids,tot_individuals,individuals_left,op_tag,dx_summaries=[],attempt=0,evaluations_acc=0,step_size,next_step,goal_status,survival_type}).
 %%==================================================================== API
 %%--------------------------------------------------------------------
@@ -108,15 +107,21 @@ init(Parameters) ->
 				tot_individuals = length([TopChampionDX_Id]),
 				individuals_left = length([TopChampionDX_Id]),
 				op_tag = continue};
-		{OpMode,Population_Id,Survival_Type}->
+		{OpModes,Population_Id,Survival_Type}->
 			DX_Ids = extract_DXIds(Population_Id,all),
 			[P] = mnesia:dirty_read({population,Population_Id}),
 			T=P#population.trace,
 			[put({evaluations,Specie_Id},0) || Specie_Id<-P#population.specie_ids],
 			[put({active,Specie_Id},extract_SpecieDXIds(Specie_Id))|| Specie_Id<-P#population.specie_ids],
 			calculate_MaxTrials(DX_Ids),
+			OpMode = case lists:member(gt,OpModes) of
+				true ->
+					gt;
+				false ->
+					exit("ERROR in population_monitor. OpModes does not contain gt in init(Parameters)~n")
+			end,
 			ActiveDX_IdPs = summon_dxs(OpMode,DX_Ids),
-			#state{op_mode=OpMode,
+			#state{op_mode=OpModes,
 				population_id = Population_Id,
 				activeDX_IdPs = ActiveDX_IdPs,
 				tot_individuals = length(DX_Ids),
@@ -185,21 +190,29 @@ handle_cast({DX_Id,terminated,Fitness,Fitness_Profile},S) when S#state.survival_
 	Population_Id = S#state.population_id,
 	OpTag = S#state.op_tag,
 	IndividualsLeft = S#state.individuals_left,
-	OpMode = S#state.op_mode,
+	OpMode = case lists:member(gt,S#state.op_mode) of
+		true ->
+			gt;
+		false ->
+			exit("ERROR in population_monitor. OpModes does not contain gt in training stage~n")
+	end,
 	case (IndividualsLeft-1) =< 0 of
 		true ->
 			mutate_population(Population_Id,?SPECIE_SIZE_LIMIT,S#state.survival_type),
-			benchmark ! {self(), tunning_phase,done},
+			%benchmark ! {self(), tunning_phase,done},
 			U_Attempt = S#state.attempt+1,
 			io:format("Attempt:~p Ended.~n~n~n",[U_Attempt]),
+			[P] = mnesia:dirty_read({population,Population_Id}),
+			T = P#population.trace,
+			TotEvaluations=T#trace.tot_evaluations,
 			case OpTag of
 				continue ->
-					case (U_Attempt >= ?GENERATION_LIMIT) or (S#state.evaluations_acc >= ?EVALUATIONS_LIMIT) of
+					case (U_Attempt >= ?GENERATION_LIMIT) or (TotEvaluations >= ?EVALUATIONS_LIMIT) or (S#state.goal_status==reached) of
 						true ->%FAILED
-							benchmark ! {self(),goal_failed,S#state.evaluations_acc,U_Attempt},
+							%benchmark ! {self(),goal_failed,S#state.evaluations_acc,U_Attempt},
 							DX_Ids = extract_DXIds(Population_Id,all),
 							U_S = S#state{dx_ids = DX_Ids,tot_individuals =length(DX_Ids),individuals_left = length(DX_Ids),attempt=U_Attempt},
-							{noreply,U_S};
+							{stop,normal,U_S};
 						false ->%IN_PROGRESS
 							DX_Ids = extract_DXIds(Population_Id,all),
 							calculate_MaxTrials(DX_Ids),
@@ -270,14 +283,14 @@ handle_cast({DX_Id,terminated,Fitness,Fitness_Profile},State) when State#state.s
 	ActiveDX_IdP = case random:uniform() < 0.1 of%Update dx_ids, and dead_pool
 		true ->
 			U_DeadPool_DXSummaries = lists:delete({WinnerFitness,WinnerProfile,WinnerDX_Id},Valid_DXSummaries),
-			{ok,WinnerDX_PId} = exoself:start_link({State#state.op_mode,WinnerDX_Id,void_MaxTrials}),
+			{ok,WinnerDX_PId} = exoself:start_link({State#state.op_mode,WinnerDX_Id,void_MaxTrials,self()}),
 			{WinnerDX_Id,WinnerDX_PId};
 		false ->
 			U_DeadPool_DXSummaries = Valid_DXSummaries,
 			DXClone_Id = create_MutantDXCopy(WinnerDX_Id,safe),
 %			io:format("WinnerDX:~p DXClone:~p~n",[mnesia:dirty_read({dx,WinnerDX_Id}),mnesia:dirty_read({dx,DXClone_Id})]),
 %			io:format("Newborn:~p::~p~n",[DXClone_Id,{WinnerFitness,WinnerProfile,WinnerDX_Id}]),
-			{ok,DXClone_PId} = exoself:start_link({State#state.op_mode,DXClone_Id,void_MaxTrials}),
+			{ok,DXClone_PId} = exoself:start_link({State#state.op_mode,DXClone_Id,void_MaxTrials,self()}),
 			{DXClone_Id,DXClone_PId}
 	end,
 	{_,_,TopDX_Ids} = unzip3(lists:sublist(Top_DXSummaries,3)),
@@ -306,12 +319,19 @@ handle_cast({request,offspring,DX_Id},S)->
 	DXClone_Id = create_MutantDXCopy(DX_Id,safe),
 %	io:format("WinnerDX:~p DXClone:~p~n",[mnesia:dirty_read({dx,WinnerDX_Id}),mnesia:dirty_read({dx,DXClone_Id})]),
 %	io:format("Newborn:~p::~p~n",[DXClone_Id,{WinnerFitness,WinnerProfile,WinnerDX_Id}]),
-	{ok,_PId} = exoself:start_link({S#state.op_mode,DXClone_Id,void_MaxTrials}),
+	{ok,_PId} = exoself:start_link({S#state.op_mode,DXClone_Id,void_MaxTrials,self()}),
 	Specie_Id = DX#dx.specie_id,
 	ActiveDXIds = get({active,Specie_Id}),
 	put({active,Specie_Id},[DXClone_Id|ActiveDXIds]),
 	{noreply,S};
-handle_cast({From,evaluations,Specie_Id,Evaluations},S)->
+handle_cast({From,evaluations,Specie_Id,AEA},S)->
+	Evaluations = case S#state.goal_status of
+		reached ->
+			0;
+		_ ->
+			AEA
+	end,
+	
 	Evaluations_Acc = S#state.evaluations_acc,
 	SEval_Acc=get({evaluations,Specie_Id}),
 	put({evaluations,Specie_Id},SEval_Acc+Evaluations),
@@ -327,19 +347,13 @@ handle_cast({From,evaluations,Specie_Id,Evaluations},S)->
 		_ ->%TODO:::TODO:::TODO:::TODO:::TODO:::
 			case U_EvaluationsAcc >= S#state.step_size of
 				true ->
-					gather_STATS(S#state.population_id,U_EvaluationsAcc),
-					update_PopulationChampions(S#state.population_id,U_EvaluationsAcc),
+					gather_STATS(S#state.population_id,U_EvaluationsAcc,S#state.op_mode),
+					update_PopulationChampions(S#state.population_id),
 					Population_Id = S#state.population_id,
 					[P] = mnesia:dirty_read({population,Population_Id}),
 					T = P#population.trace,
 					TotEvaluations=T#trace.tot_evaluations,
 					io:format("Evaluations:~p~n",[TotEvaluations]),
-					case TotEvaluations >= ?GOAL_EVALS of
-						true ->
-							gen_server:cast(monitor,{self(),goal_reached,void});
-						false ->
-							void
-					end,
 					S#state{evaluations_acc=0};
 				false ->
 					S#state{evaluations_acc=U_EvaluationsAcc}
@@ -363,14 +377,19 @@ handle_cast({_From,print_TRACE},S)->
 handle_cast({From,goal_reached,Morphology},S)->
 	case S#state.goal_status of
 		undefined ->
-			benchmark ! {self(),goal_reached,S#state.evaluations_acc,S#state.attempt+1,get(diversity)},
+			%benchmark ! {self(),goal_reached,S#state.evaluations_acc,S#state.attempt+1,get(diversity)},
 			{noreply,S#state{goal_status=reached}};
 		reached ->
 			{noreply,S}
 	end;
 handle_cast({op_tag,continue},S) ->
 	Population_Id = S#state.population_id,
-	OpMode = S#state.op_mode,
+	OpMode = case lists:member(gt,S#state.op_mode) of
+		true ->
+			gt;
+		false ->
+			exit("ERROR in population_monitor. handle_cast({op_tag,continue},S) does not have gt in OpModes~n")
+	end,
 	DX_Ids = extract_DXIds(Population_Id,all),
 	summon_dxs(OpMode,DX_Ids),
 	U_S = S#state{individuals_left = length(DX_Ids), op_tag = continue},
@@ -408,8 +427,14 @@ terminate(Reason, S) ->
 		_ ->
 			Population_Id = S#state.population_id,
 			OpTag = S#state.op_tag,
-			OpMode = S#state.op_mode,
-			io:format("******** Population_Monitor:~p shut down with Reason:~p OpTag:~p, while in OpMode:~p~n",[Population_Id,Reason,OpTag,OpMode])
+			OpModes = S#state.op_mode,
+			[P] = mnesia:dirty_read({population,Population_Id}),
+			T = P#population.trace,
+			TotEvaluations=T#trace.tot_evaluations,
+			U_T = T#trace{tot_evaluations = TotEvaluations+S#state.evaluations_acc},
+			update_PopulationChampions(S#state.population_id),
+			benchmark ! {Population_Id,completed,U_T},
+			io:format("******** Population_Monitor:~p shut down with Reason:~p OpTag:~p, while in OpModes:~p~n",[Population_Id,Reason,OpTag,OpModes])
 	end.
 
 %%--------------------------------------------------------------------
@@ -474,7 +499,7 @@ summon_dxs(OpMode,DX_Ids)->
 	
 summon_dxs(OpMode,[DX_Id|DX_Ids],Acc)->
 %	io:format("DX_Id:~p~n",[DX_Id]),
-	{ok,DX_PId} = exoself:start_link({OpMode,DX_Id,get(max_trials)}),
+	{ok,DX_PId} = exoself:start_link({OpMode,DX_Id,get(max_trials),self()}),
 	summon_dxs(OpMode,DX_Ids,[{DX_Id,DX_PId}|Acc]);
 summon_dxs(_OpMode,[],Acc)->
 	Acc.
@@ -501,6 +526,10 @@ champion()->
 %%%MsgComunication: N/A
 test()->
 	init_population({?INIT_POPULATION_ID,?INIT_CONSTRAINTS,?OP_MODE,?SURVIVAL_TYPE}).
+	
+init_population(PMP,SpecCon)->
+	init_population({PMP#pmp.population_id,SpecCon,PMP#pmp.op_mode,PMP#pmp.survival_type}).
+	
 init_population({Population_Id,Specie_Constraints,OpMode,Survival_Type})->
 	{A,B,C} = now(),
 	random:seed(A,B,C),
@@ -839,14 +868,14 @@ calculate_MaxTrials(DX_Ids)->
 %-record(population,{id,type,specie_ids=[],topspecie_ids,polis_id}).
 %-record(specie,{id,morphology,stats=#stats{},avg_fitness,stagnation_factor,dx_ids=[],topdx_ids=[],championdx_ids=[],population_id}).
 %-record(summary,{tot_subcores,tot_substrates,tot_sc_ils,tot_sc_ols,tot_sc_ros,tot_neurons,tot_n_ils,tot_n_ols,tot_n_ros,af_distribution,fitness}).
-gather_STATS(Population_Id,EvaluationsAcc)->
+gather_STATS(Population_Id,EvaluationsAcc,OpModes)->
 	io:format("Gathering Species STATS in progress~n"),
 	TimeStamp = technome_constructor:generate_UniqueId(),
 	F = fun() ->
 		[P] = mnesia:read({population,Population_Id}),
 		T = P#population.trace,
 		
-		SpecieSTATS = [update_SpecieSTAT(Specie_Id,TimeStamp) || Specie_Id<-P#population.specie_ids],
+		SpecieSTATS = [update_SpecieSTAT(Specie_Id,TimeStamp,OpModes) || Specie_Id<-P#population.specie_ids],
 		PopulationSTATS = T#trace.stats,
 		U_PopulationSTATS = [SpecieSTATS|PopulationSTATS],
 		U_TotEvaluations = T#trace.tot_evaluations+EvaluationsAcc,
@@ -860,7 +889,7 @@ gather_STATS(Population_Id,EvaluationsAcc)->
 	Result=mnesia:transaction(F),
 	io:format("Result:~p~n",[Result]).
 	
-	update_SpecieSTAT(Specie_Id,TimeStamp)->
+	update_SpecieSTAT(Specie_Id,TimeStamp,OpModes)->
 		%-record(stat,{avg_subcores=[],avg_neurons=[],avg_fitness,max_fitness,min_fitness,avg_diversity=[],evaluations=[],time_stamp}).
 		%-record(trace,{stats=[],tot_evaluations=0,step_size=500,next_step=500}).
 		%-record(specie,{id,morphology,constraint,trace=#trace{},cur_stat,avg_fitness,stagnation_factor,dx_ids=[],topdx_ids=[],championdx_ids=[],population_id}).
@@ -870,7 +899,7 @@ gather_STATS(Population_Id,EvaluationsAcc)->
 		{Avg_SubCores,SubCores_Std,Avg_Neurons,Neurons_Std} = calculate_SpecieAvgNodes({specie,S}),
 		{AvgFitness,Fitness_Std,MaxFitness,MinFitness} = calculate_SpecieFitness({specie,S}),
 		SpecieDiversity = calculate_SpecieDiversity({specie,S}),
-		GenTest_FitnessP=gt(Specie_Id),
+		GenTest_FitnessP=gt(Specie_Id,OpModes),
 		STAT = #stat{
 			morphology = S#specie.morphology,
 			specie_id = Specie_Id,
@@ -1005,24 +1034,29 @@ calculate_PopulationFitness(_Population_Id,[],AvgFAcc,MaxFAcc,MinFAcc)->
 		calculate_fitness([],FitnessAcc)->
 			FitnessAcc.
 
-gt(Specie_Id)->
-	ChampionDX_Id = case extract_ChampionDXIds([Specie_Id],[]) of
-		[DX_Id] ->
-			DX_Id;
-		[DX_Id|_] ->
-			DX_Id;
-		[]->
-			void
-	end,
-	case ChampionDX_Id of
-		void ->
-			{0,void};
-		_ ->
-			{ok,ChampionDX_PId}= exoself:start_link({benchmark,ChampionDX_Id,1}),
-			receive
-				{ChampionDX_Id,Fitness,FitnessProfile}->
-					{Fitness,ChampionDX_Id}
-			end
+gt(Specie_Id,OpModes)->
+	case lists:member(benchmark,OpModes) of
+		true ->
+			ChampionDX_Id = case extract_ChampionDXIds([Specie_Id],[]) of
+				[DX_Id] ->
+					DX_Id;
+				[DX_Id|_] ->
+					DX_Id;
+				[]->
+					void
+			end,
+			case ChampionDX_Id of
+				void ->
+					{0,void};
+				_ ->
+					{ok,ChampionDX_PId}= exoself:start_link({benchmark,ChampionDX_Id,1,self()}),
+					receive
+						{ChampionDX_Id,Fitness,FitnessProfile}->
+							{Fitness,ChampionDX_Id}
+					end
+			end;
+		false ->
+			{0,void}
 	end.
 
 conform_SpecieSize(Population_Id)->
@@ -1056,7 +1090,7 @@ conform_SpecieSize(Population_Id,[Specie_Id|Specie_Ids])->
 conform_SpecieSize(_Population_Id,[])->
 	done.
 	
-update_PopulationChampions(Population_Id,Tot_Evaluations)->
+update_PopulationChampions(Population_Id)->
 	F = fun()->
 		[P] = mnesia:read({population,Population_Id}),
 		Specie_Ids = P#population.specie_ids,
