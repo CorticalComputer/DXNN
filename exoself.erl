@@ -82,7 +82,7 @@ init({OpMode,DX_Id,MT,PM_PId}) ->
 		const ->
 			10;
 		individual ->
-			20 + functions:sat(round(math:sqrt(Tot_ActiveNeuron_Weights)),100,0);
+			10 + functions:sat(round(math:sqrt(Tot_ActiveNeuron_Weights)),100,0);
 		population ->
 			MT;
 		dx ->

@@ -30,7 +30,7 @@
 %-define(TOT_INIT_SPECIES,1).
 %Morphologies:pole2_balancing3,prey,forex_trader, xor_mimic
 -define(EFF,0.05). %Efficiency., TODO: this should further be changed from absolute number of neurons, to diff in lowest or avg, and the highest number of neurons
--define(INIT_CONSTRAINTS,[#constraint{morphology=Morphology,sc_types=SC_Types, sc_neural_plasticity=[none], sc_hypercube_plasticity=[none],sc_hypercube_linkform = Substrate_LinkForm,sc_neural_linkform=LinkForm}|| Morphology<-[epitopes],Substrate_LinkForm <- [[feedforward]], LinkForm<-[recursive],SC_Types<-[[neural]]]).
+-define(INIT_CONSTRAINTS,[#constraint{morphology=Morphology,sc_types=SC_Types, sc_neural_plasticity=[none], sc_hypercube_plasticity=[none],sc_hypercube_linkform = Substrate_LinkForm,sc_neural_linkform=LinkForm}|| Morphology<-[pole2_balancing3],Substrate_LinkForm <- [[feedforward]], LinkForm<-[recursive],SC_Types<-[[neural]]]).
 -define(SURVIVAL_PERCENTAGE,0.5).
 -define(SPECIE_SIZE_LIMIT,10).
 -define(INIT_SPECIE_SIZE,10).
@@ -38,10 +38,10 @@
 -define(INIT_POPULATION_ID,test).
 %-define(INIT_ARCHITECTURE_TYPE,modular).
 %-define(INIT_LINK_FORM,recursive).
--define(OP_MODE,gt).
+-define(OP_MODES,[gt,benchmark]).
 -define(INIT_POLIS,mathema).
 -define(GENERATION_LIMIT,1000).
--define(EVALUATIONS_LIMIT,inf).
+-define(EVALUATIONS_LIMIT,10000).
 -define(DIVERSITY_COUNT_STEP,500).
 -define(GEN_UID,technome_constructor:generate_UniqueId()).
 -define(CHAMPION_COUNT_STEP,500).
@@ -433,8 +433,13 @@ terminate(Reason, S) ->
 			TotEvaluations=T#trace.tot_evaluations,
 			U_T = T#trace{tot_evaluations = TotEvaluations+S#state.evaluations_acc},
 			update_PopulationChampions(S#state.population_id),
-			benchmark ! {Population_Id,completed,U_T},
-			io:format("******** Population_Monitor:~p shut down with Reason:~p OpTag:~p, while in OpModes:~p~n",[Population_Id,Reason,OpTag,OpModes])
+			case whereis(benchmark) of
+				undefined ->	
+					 ok;
+				PId ->
+					PId ! {Population_Id,completed,U_T},
+					io:format("******** Population_Monitor:~p shut down with Reason:~p OpTag:~p, while in OpModes:~p~n",[Population_Id,Reason,OpTag,OpModes])
+			end
 	end.
 
 %%--------------------------------------------------------------------
@@ -525,7 +530,7 @@ champion()->
 %%%Interface:Input:(PopSize:S) Output:[DX_Id1,DX_Id2...DX_Idn]
 %%%MsgComunication: N/A
 test()->
-	init_population({?INIT_POPULATION_ID,?INIT_CONSTRAINTS,?OP_MODE,?SURVIVAL_TYPE}).
+	init_population({?INIT_POPULATION_ID,?INIT_CONSTRAINTS,?OP_MODES,?SURVIVAL_TYPE}).
 	
 init_population(PMP,SpecCon)->
 	init_population({PMP#pmp.population_id,SpecCon,PMP#pmp.op_mode,PMP#pmp.survival_type}).

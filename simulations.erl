@@ -138,9 +138,6 @@ pole2_balancing(SensorId,Parameter)->
 			{A,B,C} = now(),
 			random:seed(A,B,C),
 			case get(opmode) of
-				benchmark ->
-					InitState = get_SpecialInitState(benchmark),
-					InitState;
 				_ ->
 					%Angle1 = (random:uniform() - 0.5)*2*(2*math:pi()/360),
 					%Angle2 = (random:uniform() - 0.5)*2*(2*math:pi()/360),
@@ -173,21 +170,19 @@ pole2_balancing(SensorId,Parameter)->
 		6 -> [Scaled_CPosition,Scaled_CVel,Scaled_PAngle1,Scaled_PAngle2,PVel1,PVel2]
 	end.
 
-	get_SpecialInitState(benchmark)->
-		benchmark ! {self(),get_dpb_state},
-		receive 
-			{dpb_state,State} ->
-				State
-		end.
-
 pole2_balancing(ExoSelf,F,ActuatorId,Parameters)->
 	{CPosition,CVel,PAngle1,PVel1,PAngle2,PVel2,TimeStep,GoalTimeSteps,MaxTimeSteps,FitnessAcc} =  get({pole2_balancing,ActuatorId}),
 	AL = 2*math:pi()*(36/360),
 	{NextCPosition,NextCVel,NextPAngle1,NextPVel1,NextPAngle2,NextPVel2}=sm_DoublePole(F*10,CPosition,CVel,PAngle1,PVel1,PAngle2,PVel2,2),
 	case get(opmode) of
 		test ->
-			timer:sleep(100),
-			dp_visor ! {dp_NewState,self(),{NextCPosition,NextCVel,NextPAngle1,NextPVel1,NextPAngle2,NextPVel2,TimeStep,FitnessAcc}};
+			case whereis(dp_visor) of
+				undefined ->
+					ok;
+				PId ->
+					timer:sleep(100),
+					PId ! {dp_NewState,self(),{NextCPosition,NextCVel,NextPAngle1,NextPVel1,NextPAngle2,NextPVel2,TimeStep,FitnessAcc}}
+				end;
 		_ ->
 			done
 	end,

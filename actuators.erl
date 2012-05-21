@@ -26,7 +26,13 @@ pole2_balancing(ExoSelf,Output,ActuatorId,Parameters)->
 	%send_signal
 %	Scape_PId = get(scape_PId),
 %	{AFF,F} = gen_server:call(Scape_PId,{control,pole2_balancing,{actuator,Force,ActuatorId,Parameters}}).
-	simulations:pole2_balancing(ExoSelf,Force,ActuatorId,Parameters).
+	{Progress,Fitness}=simulations:pole2_balancing(ExoSelf,Force,ActuatorId,Parameters),
+	case get(opmode) of
+		test ->
+			{Progress,[Fitness,0,0]};
+		_ ->
+			{Progress,Fitness}
+	end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% db compare actuator %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %Output: Outputs a value [Val1...Valn], and compares it to the one in a database TableName.

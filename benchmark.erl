@@ -18,7 +18,7 @@
 -define(BENCHMARK_MORPHOLOGIES,[forex_trader]).
 -define(DEFAULT_OPMODE,gt).
 -define(DEFAULT_ST,competition).
--define(INIT_CONSTRAINTS,[#constraint{morphology=Morphology,sc_types=SC_Types, sc_hypercube_plasticity=[none],sc_neural_linkform=LinkForm}|| Morphology<-[pole2_balancing3],LinkForm<-[recursive], SC_Types<-[[neural]]]).
+-define(INIT_CONSTRAINTS,[#constraint{morphology=Morphology,sc_types=SC_Types, sc_hypercube_plasticity=[none],sc_neural_linkform=LinkForm,neural_afs = [tanh]}|| Morphology<-[forex_trader],LinkForm<-[recursive], SC_Types<-[[neural]]]).
 %-record(state,{pm_parameters,table_name,run_index=1,tot_evaluations=0,tot_generations=0,goal_status,tunning_status,success_acc=[],failure_acc=[],diversity_acc=[],trace_acc=[]}).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %Starts and ends Neural Networks with various preset parameters and options, and polls the logger for information about each run.
@@ -52,13 +52,32 @@ start(Id)->
 		init_constraints=?INIT_CONSTRAINTS,
 		progress_flag=in_progress,
 		run_index=1,
-		tot_runs=5,
+		tot_runs=50,
 		started={date(),time()},
 		interruptions=[]
 	},
 	mnesia:dirty_write(E),
 	PId = spawn(benchmark,prep,[E]),
 	register(benchmark,PId).
+
+continue(Id)->
+	case mnesia:dirty_read({experiment,Id}) of
+		undefined ->
+			io:format("Can't continue experiment:~p, it's not present in the database.~n",[Id]);
+		[E] ->
+			case E#experiment.progress_flag of
+				completed ->
+					io:format("Experiment:~p already completed:~p~n",[Id,E#experiment.trace_acc]);
+				in_progress ->
+					Interruptions = E#experiment.interruptions,
+					U_Interruptions = [now()|Interruptions],
+					U_E = E#experiment{
+						interruptions = U_Interruptions
+					},
+					mnesia:dirty_write(U_E),
+					register(benchmark,spawn(benchmark,prep,[U_E]))
+			end
+	end.
 
 stop()->
 	benchmark ! {self(),stop}.
