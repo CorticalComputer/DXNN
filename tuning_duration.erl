@@ -22,7 +22,7 @@ wsize_proportional(Parameter,N_Ids,Generation)->
 	Power = Parameter,
 	Active_NIds = extract_RecGenNIds(N_Ids,Generation,3,[]),
 	Tot_ActiveNeuron_Weights = extract_NWeightCount(Active_NIds,0),
-	20 + functions:sat(round(math:pow(Tot_ActiveNeuron_Weights,Power)),100,0).
+	10 + functions:sat(round(math:pow(Tot_ActiveNeuron_Weights,Power)),100,0).
 %wsize_proportional/3 calculats the max_attempts value based on the individual agent's parameters, in this case the max_attempts is proportional to the agent's number of weights belonging to the neurons which were added or mutated within the last 3 generations.
 
 	extract_RecGenNIds([N_Id|N_Ids],Generation,AgeLimit,Acc)->

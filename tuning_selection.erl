@@ -14,6 +14,7 @@
 -include("records.hrl").
 
 dynamic(N_Ids,AgentGeneration,PerturbationRange,AnnealingParameter)->
+	%io:format("AnnealingParamter:~p~n",[AnnealingParameter]),
 	AgeLimit = math:sqrt(1/random:uniform()),
 	ChosenN_IdPs = case extract_CurGenNIdPs(N_Ids,AgentGeneration,AgeLimit,PerturbationRange,AnnealingParameter,[]) of
 		[] ->
@@ -42,17 +43,18 @@ dynamic(N_Ids,AgentGeneration,PerturbationRange,AnnealingParameter)->
 %The extract_CurGenNIdPs/6 composes a neuron id pool from neurons who are younger than the AgeLimit parameter. This is calculated by comparing the generation when they were created or touched by mutation, with that of the agent which ages with every topological mutation phase. Id pool accumulates not just the neurons but also the spread which will be used for the synaptic weight perturbation. The spread is calculated by multiplying the perturbation_range variable by math:pi(), and then multiplied by the annealing factor which is math:pow(AnnealingParameter,Age). Annealing parameter is less than 1, thus the greater the age of the neuron, the lower the Spread will be.
 
 dynamic_random(N_Ids,AgentGeneration,PerturbationRange,AnnealingParameter) ->
-			ChosenN_IdPs = case extract_CurGenNIdPs(N_Ids,AgentGeneration,math:sqrt(1/random:uniform()),PerturbationRange,AnnealingParameter,[]) of
-				[] ->
-					[N_Id|_] = N_Ids,
-					[{N_Id,PerturbationRange*math:pi()}];
-				ExtractedN_IdPs->
-					ExtractedN_IdPs
-			end,
-			%io:format("ChosenN_IdPs:~p~n",[ChosenN_IdPs]),
-			Tot_Neurons = length(ChosenN_IdPs),
-			MutationP = 1/math:sqrt(Tot_Neurons),
-			choose_randomNIdPs(MutationP,ChosenN_IdPs).
+	%io:format("AnnealingParamter:~p~n",[AnnealingParameter]),
+	ChosenN_IdPs = case extract_CurGenNIdPs(N_Ids,AgentGeneration,math:sqrt(1/random:uniform()),PerturbationRange,AnnealingParameter,[]) of
+		[] ->
+			[N_Id|_] = N_Ids,
+			[{N_Id,PerturbationRange*math:pi()}];
+		ExtractedN_IdPs->
+			ExtractedN_IdPs
+	end,
+	%io:format("ChosenN_IdPs:~p~n",[ChosenN_IdPs]),
+	Tot_Neurons = length(ChosenN_IdPs),
+	MutationP = 1/math:sqrt(Tot_Neurons),
+	choose_randomNIdPs(MutationP,ChosenN_IdPs).
 %dyanimic_random/4 selection function composes the neuron id pool the same way as the dynamic/4 selection function, but after this id pool is generated, this selection function extracts ids from it randomly with a probability of 1/math:sqrt(Tot_Neurons). Thus the probability of a neuron being selected from this pool is proportional to the number of ids in that pool. If through chance no ids are selected, then the first element in the id pool is automatically selected, and given the highest spread.
 
 	choose_randomNIdPs(MutationP,N_IdPs)->

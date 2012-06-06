@@ -679,7 +679,7 @@ loop(TableNames,HeartBeat_PId)->
 			terminate(TableNames),
 			HeartBeat_PId ! {self(),terminate},
 			ok;
-		terminate ->
+		{From,terminate} ->
 			terminate(TableNames),
 			HeartBeat_PId ! {self(),terminate},
 			ok

@@ -42,14 +42,24 @@ loop(Id,ExoSelf_PId,Cx_PId,Scape,AName,Parameters,{[],MFanin_PIds},Acc)->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% ACTUATORS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 pts(ExoSelf_PId,Result,_Scape)->
 	io:format("actuator:pts(Result): ~p~n",[Result]),
-	{1,0}.
+	case get(opmode) of
+		test ->
+			{[1,0,0],0};
+		_ ->
+			{1,0}
+	end.
 %The pts/2 actuation function simply prints to screen the vector passed to it.
 
 xor_SendOutput(ExoSelf_PId,Output,_Parameters,Scape)->
 	Scape ! {self(),action,Output},
 	receive 
 		{Scape,Fitness,HaltFlag}->
-			{Fitness,HaltFlag}
+			case get(opmode) of
+				test ->
+					{[Fitness,0,0],HaltFlag};
+				_ ->
+					{Fitness,HaltFlag}
+			end
 	end.
 %xor_sim/2 function simply forwards the Output vector to the XOR simulator, and waits for the resulting Fitness and EndFlag from the simulation process.
 
@@ -57,7 +67,12 @@ pb_SendOutput(ExoSelf_PId,Output,Parameters,Scape)->
 	Scape ! {self(),push,Parameters,Output},
 	receive 
 		{Scape,Fitness,HaltFlag}->
-			{Fitness,HaltFlag}
+			case get(opmode) of
+				test ->
+					{[Fitness,0,0],HaltFlag};
+				_ ->
+					{Fitness,HaltFlag}
+			end
 	end.
 	
 dtm_SendOutput(ExoSelf_PId,Output,Parameters,Scape)->
@@ -65,7 +80,12 @@ dtm_SendOutput(ExoSelf_PId,Output,Parameters,Scape)->
 	receive 
 		{Scape,Fitness,HaltFlag}->
 			%io:format("self():~p Fitness:~p HaltFlag:~p~n",[self(),Fitness,HaltFlag]),
-			{Fitness,HaltFlag}
+			case get(opmode) of
+				test ->
+					{[Fitness,0,0],HaltFlag};
+				_ ->
+					{Fitness,HaltFlag}
+			end
 	end.
 	
 %differential_drive(ExoSelf,Output,Parameters,Scape)->
@@ -77,12 +97,22 @@ fx_Trade(ExoSelf_PId,Output,Parameters,Scape)->
 	Scape ! {self(),trade,'EURUSD15',functions:trinary(TradeSignal)},
 	receive 
 		{Scape,Fitness,HaltFlag}->
-			{Fitness,HaltFlag}
+			case get(opmode) of
+				test ->
+					{[Fitness,0,0],HaltFlag};
+				_ ->
+					{Fitness,HaltFlag}
+			end
 	end.
 	
 abc_pred(ExoSelf,[Output],Parameters,Scape)->
 	Scape ! {self(),classify,get(opmode),Parameters,Output},
 	receive 
 		{Scape,Fitness,HaltFlag}->
-			{Fitness,HaltFlag}
+			case get(opmode) of
+				test ->
+					{[Fitness,0,0],HaltFlag};
+				_ ->
+					{Fitness,HaltFlag}
+			end
 	end.

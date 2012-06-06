@@ -14,22 +14,32 @@
 -include("records.hrl").
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Benchmark Options %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -define(DIR,"benchmarks/").
--define(INIT_CONSTRAINTS,[#constraint{morphology=Morphology,connection_architecture=CA, population_evo_alg_f=generational, neural_pfns=[none],agent_encoding_types=[neural]} || Morphology <-[pole_balancing],CA<-[recurrent]]).
+-define(INIT_CONSTRAINTS,[#constraint{morphology=Morphology,connection_architecture=CA, population_evo_alg_f=generational, neural_pfns=[none],agent_encoding_types=[neural],neural_afs=[tanh],tuning_selection_fs=[dynamic_random]} || Morphology <-[forex_trader],CA<-[recurrent]]).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %Starts and ends Neural Networks with various preset parameters and options, and polls the logger for information about each run.			
+get_ekeys()->
+	io:format("--- Currently Stored Experiments ---~n"),
+	get_ekeys(mnesia:dirty_first(experiment)).
+	
+	get_ekeys('$end_of_table')->
+		ok;
+	get_ekeys(Key)->
+		io:format("~p~n",[Key]),
+		get_ekeys(mnesia:dirty_next(experiment,Key)).
+		
 print_experiment(Experiment_Id)->
 	io:format("********~n~p~n*******",[mnesia:dirty_read({experiment,Experiment_Id})]).
 
 start(Id)->
 	PMP = #pmp{
-		op_mode=benchmark,
+		op_mode=[gt,benchmark,test],
 		population_id=test,
 		survival_percentage=0.5,
 		specie_size_limit=10,
 		init_specie_size=10,
 		polis_id = mathema,
 		generation_limit = inf,
-		evaluations_limit = 10000,
+		evaluations_limit = inf,
 		fitness_goal = inf
 	},
 	E=#experiment{
@@ -39,7 +49,7 @@ start(Id)->
 		init_constraints=?INIT_CONSTRAINTS,
 		progress_flag=in_progress,
 		run_index=1,
-		tot_runs=20,
+		tot_runs=100,
 		started={date(),time()},
 		interruptions=[]
 	},
@@ -87,7 +97,23 @@ loop(E,P_Id)->
 						progress_flag = completed
 					},
 					genotype:write(U_E),
-					report(U_E#experiment.id,"report");
+					report(U_E#experiment.id,"report"),
+					case lists:member(test,(E#experiment.pm_parameters)#pmp.op_mode) of
+						true ->
+							io:format("E:~p~n",[U_E]),
+							Traces = E#experiment.trace_acc,
+							BestGen_Champions = [get_best(Trace) || Trace <- Traces],
+							io:format("BestGen_Champions:~p~n",[BestGen_Champions]),
+							[{BOTB_F,BOTB_Id}|_] = lists:reverse(lists:sort(BestGen_Champions)),
+							io:format("BOTB:~p~n",[{BOTB_F,BOTB_Id}]),
+							BestGen_PIdPs=[{exoself:start(ExoselfId,self(),test),ExoselfId} || {GenFitness,ExoselfId} <- BestGen_Champions],
+							BestGen_Results=receive_TestAcks(BestGen_PIdPs,[]),
+							BestGen_Avg = get_avg(BestGen_Results,[]),
+							io:format("BOTB TEST RESULTS:~p~n",[lists:keyfind(BOTB_Id,1,BestGen_Results)]),
+							io:format("************************");
+						false ->
+							ok
+					end;
 				false ->
 					U_E = E#experiment{
 						trace_acc = U_TraceAcc,
@@ -103,6 +129,47 @@ loop(E,P_Id)->
 		terminate ->
 			ok
 	end.
+	
+	receive_TestAcks([{PId,Id}|PIdPs],Acc)->
+		receive
+			{PId,test_complete,Id,Fitness,Cycles,Time} ->
+				receive_TestAcks(PIdPs,[{Id,Fitness}|Acc])
+		end;
+	receive_TestAcks([],Acc)->
+		Acc.
+		
+	
+	get_best(T)->
+		Stats = T#trace.stats,
+		GenTest_Champions=[Stat#stat.gentest_fitness || [Stat] <- Stats],
+		[Best|_]=lists:reverse(lists:sort(GenTest_Champions)),
+		Best.
+	
+%	get_avg([{Id,FitnessP}|IdPs],Acc)->
+%		get_avg(IdPs,[FitnessP|Acc]);
+%	get_avg([],Acc)->
+%		[io:format("~p~n",[{functions:avg(Fitness),functions:std(Fitness),lists:max(Fitness),lists:min(Fitness)}]) || Fitness <- Acc].
+	get_avg([{Id,FitnessP}|IdPs],Acc)->
+		get_avg(IdPs,[FitnessP|Acc]);
+	get_avg([],Acc)->
+		get_avg(Acc,[],[],[]).
+		
+		get_avg([Fitness|FitnessPs],Acc1,Acc2,Acc3)->
+			%io:format("Fitness:~p~n",[{Fitness,FitnessPs}]),
+			case Fitness of
+				[Score|Scores] ->
+			%		io:format("Score/Scores:~p~n",[{Score,Scores}]),
+					get_avg(FitnessPs,[Score|Acc1],[Scores|Acc2],Acc3);
+				[] ->
+					get_avg(FitnessPs,Acc1,Acc2,Acc3)
+			end;
+		get_avg([],[],[],Acc3)->
+			io:format("Top validation score based agent's test fitness:~n"),
+			[io:format("~p~n",[{functions:avg(Score),functions:std(Score),lists:max(Score),lists:min(Score)}]) || Score <- lists:reverse(Acc3)];
+		get_avg([],Acc1,Acc2,Acc3)->
+			%io:format("Acc1:~p~n",[Acc1]),
+			get_avg(Acc2,[],[],[Acc1|Acc3]).		
+	
 
 report(Experiment_Id,FileName)->
 	E = genotype:dirty_read({experiment,Experiment_Id}),
@@ -183,7 +250,7 @@ prepare_Graphs(Traces)->
 						avg_diversity = lists:reverse(Graph#graph.avg_diversity),
 						diversity_std = lists:reverse(Graph#graph.diversity_std)
 					}.
-				
+
 				avg_stats([S|STail],Avg)->
 					{GenTest_Fitness,ChampionId} = S#stat.gentest_fitness,
 					U_Avg = Avg#avg{
