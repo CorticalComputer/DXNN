@@ -199,12 +199,12 @@ reason(Sensors,Actuators,CT,CF,Densities,{Substrate,SMode},Plasticity)->
 %			io:format("Output:~p~n Densities:~p~n Substrate:~p~n U_Substrate:~p~n CT:~p~n CF:~p~n",[Output,Densities,Substrate,U_Substrate,CT,CF]),
 			{U_Substrate,SMode,Output};
 		hold ->%io:format("hold~n"),
-			Output = calculate_HoldOutput(Densities,Substrate,Input),
+			{Output,U_Substrate} = calculate_HoldOutput(Densities,Substrate,Input),
 			%io:format("Output1:~p Output:~p~n",[Output,Output]),
-			{Substrate,SMode,Output}
+			{U_Substrate,SMode,Output}
 	end.
 
-format_OAcc(OAcc,[Actuator|Actuators],Acc)->
+format_OAcc(OAcc,[Actuator|Actuators],Acc)->%io:format("Here?:~p~n",[{[Actuator|Actuators],OAcc}]),
 	{Output,OAccRem}=lists:split(Actuator#actuator.tot_vl,OAcc),
 	format_OAcc(OAccRem,Actuators,[{Actuator,Output}|Acc]);
 format_OAcc([],[],Acc)->
@@ -536,7 +536,9 @@ calculate_IterativeOutput(Densities,Substrate,Input,CT,CF)->
 						%	true ->
 						%		0
 						%end
-						Val
+						Val;
+					{I_PId,forward,[Weight,Expresion]}->
+						Weight*Expresion
 				end,
 %				io:format("Weight:~p Processed_Weight:~p~n",[Weight,Processed_Weight]),
 %				io:format("W:~p DW:~p~n",[W,DeltaWeight]),
