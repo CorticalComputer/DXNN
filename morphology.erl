@@ -81,6 +81,16 @@ get_HCT(Dimensions,Plasticity)->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% NEURAL %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% GLOBAL Sensors/Actuators %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Get Init Actuators/Sensors %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+get_RandomInitSensors(Morphology)->
+	Sensors = morphology:Morphology(sensors),
+	[lists:nth(random:uniform(length(Sensors)),Sensors)].
+	%[lists:nth(1,Sensors)].
+	
+get_RandomInitActyatirs(Morphology)->
+	Actuators = morphology:Morphology(actuators),
+	[lists:nth(random:uniform(length(Actuators)),Actuators)].
+	%[lists:nth(1,Sensors)].
+
 get_InitActuators(Morphology)->
 	[lists:nth(1,morphology:Morphology(actuators))].
 	
@@ -151,12 +161,10 @@ forex_trader(actuators)->
 		#actuator{name=fx_Trade,id=fx_id,format=no_geo,tot_vl=1,parameters=[]}
 	];
 forex_trader(sensors)->
-	LinearSensors=[#sensor{name=Name,id=fx_id,format=no_geo,tot_vl=HRes,parameters=[HRes,close]} ||
-		Name <- [fx_ListSensor],HRes<-[10]],
-	GraphSensors = [#sensor{name=fx_GraphSensor,id=fx_id,format={symetric,[HRes,VRes]},tot_vl=HRes*VRes,parameters=[HRes,VRes]} ||
-		HRes <-[100], VRes<-[100]],
+	LinearSensors=[#sensor{name=fx_ListSensor,id=fx_id,format=no_geo,tot_vl=HRes,parameters=[HRes,close]} || HRes<-[2]],
+	GraphSensors = [#sensor{name=fx_GraphSensor,id=fx_id,format={symetric,[HRes,VRes]},tot_vl=HRes*VRes,parameters=[HRes,VRes]} || HRes <-[100], VRes<-[20]],
 	InternalSensors = [#sensor{name=fx_Internals,id=fx_id,format=no_geo,tot_vl=3,parameters=[3]}],%[Long|Short|Void,Value]
-	LinearSensors.%++InternalSensors.
+	GraphSensors.%++InternalSensors.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Flatlander %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
 %{2,{actuator,move_2d,cell_id,[2]}},
@@ -230,7 +238,25 @@ epitopes(sensors)->
 		StartTestIndex=281,
 		EndTestIndex=560
 	],
-	[#sensor{name=abc_pred,id=fx_id,format=no_geo,tot_vl=336,parameters=Parameters}].
+	[#sensor{name=abc_pred,id=cell_id,format=no_geo,tot_vl=336,parameters=Parameters}].
+
+epiwalker(actuators)->
+	Parameters=[
+	],
+	[
+		#actuator{name=epiwalker_Mark,id=primary,format=no_geo,tot_vl=1,parameters=Parameters}
+		%#actuator{name=epiwalker_Move,id=primary,format=no_geo,tot_vl=1,parameters=Parameters}
+	];
+epiwalker(sensors)->
+	ParameterList=[
+	"PrimSeqDec",
+	pcc,
+	"Hydropathy",
+	"SideChainCharge",
+	"SideChainPolarity"
+	],
+	SeqLen = 15,
+	[#sensor{name=epiwalker_PrimSeq,format=no_geo,tot_vl=SeqLen,parameters=Parameters} || Parameters<-ParameterList].
 
 create_format(Type,Precurser)->
 	case Type of

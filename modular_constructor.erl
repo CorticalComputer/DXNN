@@ -52,7 +52,7 @@ construct_CortexTechnome(DX_Id,Generation,SpecCon)->
 			Actuators = morphology:get_InitActuators(Morphology),
 			Density = 5,
 			Dimensions = calculate_OptimalHypercubeDimension(Morphology),
-			Depth = 1,
+			Depth = 2,
 			Densities = [Depth,1|lists:duplicate(Dimensions-2,Density)], %[X,Y,Z,T...]
 			
 			SubstrateCT = morphology:get_InitHCT(Dimensions,Plasticity),
@@ -90,7 +90,7 @@ construct_CortexTechnome(DX_Id,Generation,SpecCon)->
 			Neural_Link_Form = SpecCon#constraint.sc_neural_linkform,
 			SC_Plasticity = SpecCon#constraint.sc_neural_plasticity,
 			[Plasticity]=SC_Plasticity,
-			Sensors = morphology:get_Sensors(Morphology),
+			Sensors = morphology:get_InitSensors(Morphology),
 			Actuators = morphology:get_InitActuators(Morphology),
 			Dimensions = void,
 			Densities = void,

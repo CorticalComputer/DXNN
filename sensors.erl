@@ -983,7 +983,10 @@ fx_GraphSensor(CTVL,_SensorId,Parameters)->
 			%Normal, assuming we have 10000 rows, we start from 1000 to 6000
 			PId ! {self(),sense,'EURUSD15',close,[HRes,VRes,graph_sensor],1000,200};
 		benchmark ->
-			PId ! {self(),sense,'EURUSD15',close,[HRes,VRes,graph_sensor],200,last}
+			PId ! {self(),sense,'EURUSD15',close,[HRes,VRes,graph_sensor],199,100};
+		test ->
+			PId ! {self(),sense,'EURUSD15',close,[HRes,VRes,graph_sensor],99,last}
+			
 	end,
 	receive 
 		{_From,Result}->
@@ -1006,9 +1009,9 @@ fx_ListSensor(CTVL,_SensorId,Parameters)->
 			%Normal, assuming we have 10000 rows, we start from 1000 to 6000
 			PId ! {self(),sense,'EURUSD15',close,[HRes,list_sensor],5000,1000};
 		benchmark ->
-			PId ! {self(),sense,'EURUSD15',close,[HRes,list_sensor],1001,500};
+			PId ! {self(),sense,'EURUSD15',close,[HRes,list_sensor],999,500};
 		test ->
-			PId ! {self(),sense,'EURUSD15',close,[HRes,list_sensor],501,last}
+			PId ! {self(),sense,'EURUSD15',close,[HRes,list_sensor],499,last}
 	end,
 	receive 
 		{_From,Result}->
@@ -1067,6 +1070,167 @@ abc_pred(CTVL,_SensorId,Parameters)->
 	end,
 	%io:format("Out:~p~n",[Out]),
 	Out.
+
+epiwalker_PrimSeq_Dec1(CTVL,_SensirId,Parameters)->
+	case get(sim_epitopes_pid) of
+		undefined ->
+			PId = sim_epitopes:start(),
+			put(sim_epitopes_pid,PId);
+		PId ->
+			PId
+	end,
+	case get(opmode) of
+		gt	->
+			PId ! {self(),prim_seq,CTVL,training};
+		benchmark ->
+			PId ! {self(),prim_seq,CTVL,validation};
+		test ->
+			PId ! {self(),prim_seq,CTVL,testing}
+	end,
+	receive 
+		{_From,percept_PrimSeq,Result}->
+%			io:format("Result:~p~n",[Result]),
+			[translate_seq1(Char) || Char<-Result]
+	end.
+	
+epiwalker_PCC(CTVL,_SensirId,Parameters)->
+	case get(sim_epitopes_pid) of
+		undefined ->
+			PId = sim_epitopes:start(),
+			put(sim_epitopes_pid,PId);
+		PId ->
+			PId
+	end,
+	case get(opmode) of
+		gt	->
+			PId ! {self(),pcc,CTVL,training};
+		benchmark ->
+			PId ! {self(),pcc,CTVL,validation};
+		test ->
+			PId ! {self(),pcc,CTVL,testing}
+	end,
+	receive 
+		{_From,percept_PCC,Result}->
+%			io:format("Result:~p~n",[Result]),
+			[translate_seq1(Char) || Char<-Result]
+	end.
+
+
+epiwalker_PrimSeq(CTVL,_SensirId,Parameters)->
+	Result =case get(opmode) of
+		gt	->
+			epiwalker_sense({Parameters,CTVL,training});
+		benchmark ->
+			epiwalker_sense({Parameters,CTVL,validation});
+		test ->
+			epiwalker_sense({Parameters,CTVL,testing})
+	end.
+	
+	-record(epiwalker_state,{
+		table_name,
+		key,
+		mode,
+		prim_seq,
+		pcc,
+		marker_seq,
+		window_size,
+		map,
+		epi_reward,
+		nonepi_reward,
+		next
+	}).
+
+	epiwalker_sense({pcc,WindowSize,FileName})->
+		S= get(epiwalker_state),
+		Percept=if
+			(S == undefined)->
+				U_S=set_InitEpiState(FileName,WindowSize),
+				put(epiwalker_state,U_S),
+				lists:sublist(U_S#epiwalker_state.pcc,WindowSize);
+			(S#epiwalker_state.next == next) ->
+				U_S=set_EpiState(ets:next(S#epiwalker_state.table_name,S#epiwalker_state.key),S),
+				put(epiwalker_state,U_S),
+				lists:sublist(U_S#epiwalker_state.pcc,WindowSize);
+			(S#epiwalker_state.next == reset) ->
+				U_S=set_EpiState(ets:first(S#epiwalker_state.table_name),S),
+				put(epiwalker_state,U_S),
+				lists:sublist(U_S#epiwalker_state.pcc,WindowSize);
+			true ->
+				lists:sublist(S#epiwalker_state.pcc,WindowSize)
+		end;
+	epiwalker_sense({MapName,WindowSize,FileName})->%io:format("Sense~n"),
+		S= get(epiwalker_state),
+		Percept=if
+			(S == undefined)->
+				U_S=set_InitEpiState(FileName,WindowSize),
+				put(epiwalker_state,U_S),
+				Map = U_S#epiwalker_state.map,
+				[ets:lookup_element(Map,{MapName,Char},2) || Char<-lists:sublist(U_S#epiwalker_state.prim_seq,WindowSize)];
+			(S#epiwalker_state.next == next) ->
+				U_S=set_EpiState(ets:next(S#epiwalker_state.table_name,S#epiwalker_state.key),S),
+				put(epiwalker_state,U_S),	
+				Map = U_S#epiwalker_state.map,
+				[ets:lookup_element(Map,{MapName,Char},2) || Char<-lists:sublist(U_S#epiwalker_state.prim_seq,WindowSize)];
+			(S#epiwalker_state.next == reset) ->
+				U_S=set_EpiState(ets:first(S#epiwalker_state.table_name),S),
+				put(epiwalker_state,U_S),	
+				Map = U_S#epiwalker_state.map,
+				[ets:lookup_element(Map,{MapName,Char},2) || Char<-lists:sublist(U_S#epiwalker_state.prim_seq,WindowSize)];
+			true ->
+				Map = S#epiwalker_state.map,
+				[ets:lookup_element(Map,{MapName,Char},2) || Char<-lists:sublist(S#epiwalker_state.prim_seq,WindowSize)]
+		end.		
+
+	set_InitEpiState(FileName,WindowSize)->
+		{ok,MapTN} = ets:file2tab(epi_map),
+		{ok,TN}=ets:file2tab(FileName),
+		Key=ets:first(TN),
+		S = #epiwalker_state{table_name=TN,map=MapTN,window_size=WindowSize},
+		set_EpiState(Key,S).
+		
+		set_EpiState(Key,S)->
+			TN = S#epiwalker_state.table_name,
+			SideLength = round((S#epiwalker_state.window_size-1)/2),
+			PrimSideSeq = lists:flatten(lists:duplicate(SideLength,88)),
+			PrimSeq = ets:lookup_element(TN,Key,3),
+			MarkerSeq=ets:lookup_element(TN,Key,4),
+			Proper_PrimSeq = PrimSideSeq ++ PrimSeq ++ PrimSideSeq,
+			CPPSideSeq = lists:flatten(lists:duplicate(SideLength,-1)),
+			CPP = calculate_ppc(PrimSeq),
+			Proper_CPP = CPPSideSeq ++ CPP ++ CPPSideSeq,
+			TotEpitopeResidues=length([Char||Char <- MarkerSeq, (Char==69) or (Char==101)]),
+			TotResidues=length(PrimSeq),
+			EpiReward=50/TotEpitopeResidues,
+			NonEpiReward=50/(TotResidues-TotEpitopeResidues),
+			%io:format("Proper_PrimSeq:~p~n Proper_CPP:~p~n",[Proper_PrimSeq,Proper_CPP]),
+			%length(PrimSeq) == length(ets:lookup_element(TN,Key,4)),
+			U_S=S#epiwalker_state{
+				key=Key,
+				prim_seq=Proper_PrimSeq,
+				pcc = Proper_CPP,
+				marker_seq=MarkerSeq,
+				epi_reward = EpiReward,
+				nonepi_reward = NonEpiReward,
+				next=undefined
+			}.
+		
+		calculate_ppc(PrimSeq)->
+			SeqLength = length(PrimSeq),
+			TableName=ets:new(table,[set,private]),
+			calculate_ppc(PrimSeq,TableName),
+			CPP=[(ets:lookup_element(TableName,Char,2)/SeqLength)*100 || Char <- PrimSeq],
+			ets:delete(TableName),
+			CPP.
+		calculate_ppc([Char|PrimSeq],TableName)->
+			case ets:lookup(TableName,Char) of
+				[] ->
+					ets:insert(TableName,{Char,1});
+				[{Char,Count}]->
+					ets:insert(TableName,{Char,Count+1})
+			end,
+			calculate_ppc(PrimSeq,TableName);
+		calculate_ppc([],_TableName)->
+			ok.
 	
 	translate_seq1(Char)->
 		case Char of
@@ -1094,12 +1258,12 @@ abc_pred(CTVL,_SensorId,Parameters)->
 		end.
 translate_seq(Char)->
 		case Char of
-			65 -> [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
-			82 -> [0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
-			78 -> [0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
-			68 -> [0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
-			67 -> [0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
-			69 -> [0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+			65 -> [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]; %A
+			82 -> [0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]; %R
+			78 -> [0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]; %N
+			68 -> [0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]; %D
+			67 -> [0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]; %C
+			69 -> [0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]; %
 			81 -> [0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
 			71 -> [0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0];
 			72 -> [0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0];

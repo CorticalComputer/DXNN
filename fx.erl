@@ -92,7 +92,7 @@
 -define(ACTUATOR_CA_TAG,false).
 -define(SENSE_CA_TAG,false).
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% FX SIMULATION %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% FX SIMULATION %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%11,20,14
 -record(state,{table_name,feature,index_start,index_end,index,price_list=[]}).
 -record(account,{leverage=50,lot=10000,spread=0.000150,margin=0,balance=300,net_asset_value=300,realized_PL=0,unrealized_PL=0,order}).
 -record(order,{pair,position,entry,current,units,change,percentage_change,profit}).
@@ -132,7 +132,7 @@ go()->
 
 market_properties()->
 	random:seed(now()),
-	market_properties('EURUSD15',close,[3,list_sensor],800,200).
+	market_properties('EURUSD15',close,[3,list_sensor],800,200).%680, 328, 353
 market_properties(CurrencyPair,Feature,Parameters,StartIndex,EndIndex)->
 %	random(CurrencyPair,Feature,parameters,StartIndex,EndIndex),
 	max(CurrencyPair,Feature,Parameters,StartIndex,EndIndex),
@@ -877,4 +877,4 @@ list_to_number(List)->
 %Output: TableSize::int
 table_size(TableName)->
 	[_,_,_,{size,Size},_,_,_,_,_] = ets:info(TableName),
-	Size.	
+	Size.

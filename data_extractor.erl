@@ -11,7 +11,7 @@
 -compile(export_all).
 -include("records.hrl").
 
--define(PACKAGER,vowel_recognition).
+-define(PACKAGER,epitopes).
 
 check_table(TableName)->
 	{ok,TN} = ets:file2tab(TableName),
@@ -28,6 +28,7 @@ check_table(TableName)->
 start(URL,SplitVals,FileName)->
 	start(URL,SplitVals,FileName,?PACKAGER).
 start(URL,SplitVals,FileName,Packager)->
+	io:format("URL:~p~n SplitVals:~p~n FileName:~p~n PACKAGER:~p~n",[URL,SplitVals,FileName,Packager]),
 	case file:read_file(URL) of
 		{ok,Data} ->
 			file:close(URL),
@@ -42,6 +43,7 @@ start(URL,SplitVals,FileName,Packager)->
 		lists:reverse(Acc);
 	list_to_dvals(SplitVals,List,Acc)->
 		{DVal_Line,Remainder} = splitter(SplitVals,List,[]),
+		io:format("DVal_Line:~p~n",[DVal_Line]),
 		list_to_dvals(SplitVals,Remainder,[DVal_Line|Acc]).
 		
 		splitter([SplitVal|SplitVals],List,Acc)->
@@ -85,7 +87,9 @@ list_to_number(List)->
 	
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Packagers %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 store(Extracted_Values,Name,Packager)->
-	TableName = ets:new(Name,[set,public,named_table]),
+	io:format("Extracted_Values:~p~n Name:~p Packager:~p~n",[Extracted_Values,Name,Packager]),
+	TableName = ets:new(Name,[set,private]),
+	io:format("TableName:~p~n",[TableName]),
 	data_extractor:Packager(TableName,Extracted_Values,1),
 	ets:tab2file(TableName,Name),
 	ets:delete(TableName).
@@ -148,3 +152,19 @@ abc_pred(TableName,[Line|Lines],Index)->
 	abc_pred(TableName,Lines,Index+1);
 abc_pred(TableName,[],Index)->
 	io:format("Stored to ETS table:~p Index reached:~p~n",[TableName,Index-1]).
+
+%data_extractor:start("Bioinformatics_Data/incompletelearnepitopemarkup/AntiJen.how",[10,32],training).	
+epitopes(TableName,[Line|Lines],Index)->
+	%ets:insert(TableName,{Index,Description,PrimSeq,MarkerSeq}),
+	io:format("Line: ~p~n",[Line]),
+	[Description,SeqP] = Line,
+	io:format("Description:~p~n SeqP:~p~n",[Description,SeqP]),
+	{PrimSeq,MarkerSeq}=lists:split(round(length(SeqP)/2),SeqP),
+	io:format("~p Description:~p~n PrimSeq:~p~n MarkerSeq:~p~n",[Index,Description,[C||C<-PrimSeq,C=/=10],[C||C<-MarkerSeq,C=/=10]]),
+	ets:insert(TableName,{Index,Description,[C||C<-PrimSeq,C=/=10],[C||C<-MarkerSeq,C=/=10]}),
+	epitopes(TableName,Lines,Index+1);
+epitopes(TableName,[],Index)->
+	io:format("Stores to ETS table:~p Index reached:~p~n",[TableName,Index-1]).
+	
+%aaindex1(TableName,[Line|Lines],Index)->
+	

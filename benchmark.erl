@@ -18,12 +18,22 @@
 -define(BENCHMARK_MORPHOLOGIES,[forex_trader]).
 -define(DEFAULT_OPMODE,gt).
 -define(DEFAULT_ST,competition).
--define(INIT_CONSTRAINTS,[#constraint{morphology=Morphology,sc_types=SC_Types, sc_hypercube_plasticity=[none],sc_neural_linkform=LinkForm,neural_afs = [tanh]}|| Morphology<-[forex_trader],LinkForm<-[recursive], SC_Types<-[[neural]]]).
+-define(INIT_CONSTRAINTS,[#constraint{morphology=Morphology,sc_types=SC_Types, sc_hypercube_plasticity=[none], sc_neural_linkform=LinkForm, neural_afs = [tanh]}|| Morphology<-[epiwalker],LinkForm<-[recursive], SC_Types<-[[neural]]]).
 %-record(state,{pm_parameters,table_name,run_index=1,tot_evaluations=0,tot_generations=0,goal_status,tunning_status,success_acc=[],failure_acc=[],diversity_acc=[],trace_acc=[]}).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %Starts and ends Neural Networks with various preset parameters and options, and polls the logger for information about each run.
 print_experiment(Experiment_Id)->
 	io:format("********~n~p~n*******",[mnesia:dirty_read({experiment,Experiment_Id})]).
+
+get_ekeys()->
+	io:format("--- Currently Stored Experiments ---~n"),
+	get_ekeys(mnesia:dirty_first(experiment)).
+	
+	get_ekeys('$end_of_table')->
+		ok;
+	get_ekeys(Key)->
+		io:format("~p~n",[Key]),
+		get_ekeys(mnesia:dirty_next(experiment,Key)).
 
 start(Id)->
 	PMP = #pmp{
@@ -52,7 +62,7 @@ start(Id)->
 		init_constraints=?INIT_CONSTRAINTS,
 		progress_flag=in_progress,
 		run_index=1,
-		tot_runs=50,
+		tot_runs=10,
 		started={date(),time()},
 		interruptions=[]
 	},
@@ -126,12 +136,13 @@ loop(E,P_Id)->
 							io:format("E:~p~n",[U_E]),
 							Traces = U_E#experiment.trace_acc,
 							BestGen_Champions = [get_best(Trace) || Trace <- Traces],
-							io:format("BestGen_Champions:~p~n",[BestGen_Champions]),
+							io:format("Best validation champions per evolutionary run:~p~n",[BestGen_Champions]),
 							[{BOTB_F,BOTB_Id}|_] = lists:reverse(lists:sort(BestGen_Champions)),
 							io:format("BOTB:~p~n",[{BOTB_F,BOTB_Id}]),
 							BestGen_PIdPs=[{exoself:start_link({test,ExoselfId,1,self()}),ExoselfId} || {GenFitness,ExoselfId} <- BestGen_Champions],
-							io:format("BestGen_PIdPs:~p~n",[BestGen_PIdPs]),
+							%io:format("BestGen_PIdPs:~p~n",[BestGen_PIdPs]),
 							BestGen_Results=receive_TestAcks(BestGen_PIdPs,[]),
+							io:format("Test results of the best validation champions:~p~n",[BestGen_Results]),
 							BestGen_Avg = get_avg(BestGen_Results,[]),
 							io:format("BOTB TEST RESULTS:~p~n",[lists:keyfind(BOTB_Id,1,BestGen_Results)]),
 							io:format("************************~n");
@@ -159,6 +170,22 @@ loop(E,P_Id)->
 		terminate ->
 			ok
 	end.
+
+final_steps(ExperimentName)->
+	[U_E]=mnesia:dirty_read({experiment,ExperimentName}),
+	io:format("E:~p~n",[U_E]),
+	Traces = U_E#experiment.trace_acc,
+	BestGen_Champions = [get_best(Trace) || Trace <- Traces],
+	io:format("Best validation champions per evolutionary run:~p~n",[BestGen_Champions]),
+	[{BOTB_F,BOTB_Id}|_] = lists:reverse(lists:sort(BestGen_Champions)),
+	io:format("BOTB:~p~n",[{BOTB_F,BOTB_Id}]),
+	BestGen_PIdPs=[{exoself:start_link({test,ExoselfId,1,self()}),ExoselfId} || {GenFitness,ExoselfId} <- BestGen_Champions],
+	%io:format("BestGen_PIdPs:~p~n",[BestGen_PIdPs]),
+	BestGen_Results=receive_TestAcks(BestGen_PIdPs,[]),
+	io:format("Test results of the best validation champions:~p~n",[BestGen_Results]),
+	BestGen_Avg = get_avg(BestGen_Results,[]),
+	io:format("BOTB TEST RESULTS:~p~n",[lists:keyfind(BOTB_Id,1,BestGen_Results)]),
+	io:format("************************~n").
 
 	receive_TestAcks([{{ok,PId},Id}|PIdPs],Acc)->
 		receive
@@ -190,7 +217,7 @@ loop(E,P_Id)->
 					get_avg(FitnessPs,Acc1,Acc2,Acc3)
 			end;
 		get_avg([],[],[],Acc3)->
-			io:format("Top validation score based agent's test fitness:~n"),
+			io:format("Test restuls of best validation agents, with each fitness objective showing: {Avg,Std,Max,Min}:~n"),
 			[io:format("~p~n",[{functions:avg(Score),functions:std(Score),lists:max(Score),lists:min(Score)}]) || Score <- lists:reverse(Acc3)];
 		get_avg([],Acc1,Acc2,Acc3)->
 			%io:format("Acc1:~p~n",[Acc1]),

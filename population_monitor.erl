@@ -30,7 +30,7 @@
 %-define(TOT_INIT_SPECIES,1).
 %Morphologies:pole2_balancing3,prey,forex_trader, xor_mimic
 -define(EFF,0.05). %Efficiency., TODO: this should further be changed from absolute number of neurons, to diff in lowest or avg, and the highest number of neurons
--define(INIT_CONSTRAINTS,[#constraint{morphology=Morphology,sc_types=SC_Types, sc_neural_plasticity=[none], sc_hypercube_plasticity=[none],sc_hypercube_linkform = Substrate_LinkForm,sc_neural_linkform=LinkForm}|| Morphology<-[pole2_balancing3],Substrate_LinkForm <- [[feedforward]], LinkForm<-[recursive],SC_Types<-[[neural]]]).
+-define(INIT_CONSTRAINTS,[#constraint{morphology=Morphology,sc_types=SC_Types, sc_neural_plasticity=[none], sc_hypercube_plasticity=[none],sc_hypercube_linkform = Substrate_LinkForm,sc_neural_linkform=LinkForm}|| Morphology<-[epiwalker],Substrate_LinkForm <- [[feedforward]], LinkForm<-[recursive],SC_Types<-[[neural]]]).
 -define(SURVIVAL_PERCENTAGE,0.5).
 -define(SPECIE_SIZE_LIMIT,10).
 -define(INIT_SPECIE_SIZE,10).
@@ -83,7 +83,6 @@ init(Parameters) ->
 	process_flag(trap_exit,true),
 	register(monitor,self()),
 	io:format("******** Population monitor started with parameters:~p~n",[Parameters]),
-	put(champion_step,50),
 	State = case Parameters of
 		{championship,Population_Id}->
 			ChampionDX_Ids = extract_DXIds(Population_Id,champions),
@@ -615,8 +614,8 @@ mutate_population(Population_Id,KeepTot,Survival_Type)->
 				ProperlySorted_DXSummaries = [Val || {_,Val}<-SDX],
 				
 %				ProperlySorted_DXSummaries = Sorted_DXSummaries,
-				
-				Valid_DXSummaries = lists:sublist(ProperlySorted_DXSummaries,TotSurvivors),
+				Valid_DXSummaries=uniquify(ProperlySorted_DXSummaries,TotSurvivors),
+				%Valid_DXSummaries = lists:sublist(ProperlySorted_DXSummaries,TotSurvivors),
 				Invalid_DXSummaries = Sorted_DXSummaries -- Valid_DXSummaries,
 				{_,_,Invalid_DXIds} = unzip3(Invalid_DXSummaries),
 				[delete_dx(DX_Id) || DX_Id <- Invalid_DXIds],
@@ -627,6 +626,18 @@ mutate_population(Population_Id,KeepTot,Survival_Type)->
 				{_,_,TopDX_Ids} = unzip3(TopDXSummaries),
 				io:format("NeuralEnergyCost:~p~n",[NeuralEnergyCost]),
 				NewGenDX_Ids = competition(Valid_DXSummaries,PopulationLimit,NeuralEnergyCost);
+			ranked ->
+				TotSurvivors = round(length(Sorted_DXSummaries)*?SURVIVAL_PERCENTAGE),
+				SDX=lists:reverse(lists:sort([{Fitness/math:pow(TotN,?EFF),{Fitness,[A,B,TotN],DX_Id}}||{Fitness,[A,B,TotN],DX_Id}<-Sorted_DXSummaries])),
+				ProperlySorted_DXSummaries = [Val || {_,Val}<-SDX],
+				%Diversify based on fitness score
+				%dynamic_annealing
+				Valid_DXSummaries = uniquify(ProperlySorted_DXSummaries,TotSurvivors),
+				Temperature = calculate_temperature(ProperlySorted_DXSummaries),
+				TopDXSummaries = lists:sublist(Valid_DXSummaries,3),
+				{_,_,TopDX_Ids} = unzip3(TopDXSummaries),
+				io:format("NeuralEnergyCost:~p~n",[NeuralEnergyCost]),
+				NewGenDX_Ids = competition(Valid_DXSummaries,PopulationLimit,NeuralEnergyCost);%,Temperature);
 			top3 ->
 				TotSurvivors = 3,
 				ProperlySorted_DXSummaries = Sorted_DXSummaries,
@@ -711,6 +722,42 @@ mutate_population(Population_Id,KeepTot,Survival_Type)->
 					end;
 				compare_profiles([],_Profile)->
 					true.
+
+		uniquify(ProperlySorted_DXSummaries,TotSurvivors)->
+			%[DX_Summary|Sorted_DXSummaries] = ProperlySorted_DXSummaries,%lists:sublist(ProperlySorted_DXSummaries,TotSurvivors),
+			[DX_Summary|Sorted_DXSummaries] = lists:sublist(ProperlySorted_DXSummaries,TotSurvivors),
+			{Fitness,Profile,_DX_Id} = DX_Summary,
+			Diversified_DXSummaries = diversify([{Fitness,Profile}],Sorted_DXSummaries,TotSurvivors-1,[DX_Summary]).
+			
+			diversify(_TopProfiles,_Sorted_DXSummaries,0,Acc)->
+				lists:reverse(Acc);
+			diversify(Profiles,[DX_Summary|Sorted_DXSummaries],KeepTot,Acc)->
+				{Fitness,Profile,DX_Id} = DX_Summary,
+				%case compare_profiles(Profiles,Profile) of
+				case compare_profilesf(Profiles,{Fitness,Profile}) of
+					true->
+						diversify([{Fitness,Profile}|Profiles],Sorted_DXSummaries,KeepTot-1,[DX_Summary|Acc]);
+					false ->
+						diversify(Profiles,Sorted_DXSummaries,KeepTot,Acc)
+				end;
+			diversify(_TopProfiles,[],KeepTot,Acc)->
+				lists:reverse(Acc).
+				
+				compare_profilesf([{TopFitness,TopProfile}|TopProfiles],{Fitness,Profile})->%Better make Fitnes part of profile
+					case (TopProfile == Profile) of%and (TopFitness == Fitness) of
+						true ->
+							false;
+						false ->
+							compare_profilesf(TopProfiles,{Fitness,Profile})
+					end;
+				compare_profilesf([],_ProfileP)->
+					true.
+				
+			calculate_temperature(ProperlySorted_DXSummaries)->
+				%Calculate age between population, and agent.
+				%The higher the age, the longer has this agent stayedi in the population without its offspring overtaking.
+				%Increase temperate in proportion to the age, thus increasing the diversity of the offspring.
+				ok.
 
 	competition(Sorted_DXSummaries,PopulationLimit,NeuralEnergyCost)->
 		{AlotmentsP,NextGenSize_Estimate} = calculate_alotments(Sorted_DXSummaries,NeuralEnergyCost,[],0),

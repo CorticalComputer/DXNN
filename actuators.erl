@@ -237,3 +237,88 @@ abc_pred(ExoSelf,[Output],ActuatorId,Parameters)->
 					{Progress,Fitness}
 			end
 	end.
+	
+
+epiwalker_Mark1(ExoSelf,Output,ActuatorId,Parameters)->
+	case get(sim_epitopes_pid) of
+		undefined ->
+			PId = sim_epitopes:start(),
+			put(fx_pid,PId);
+		PId ->
+			PId
+	end,
+	PId ! {self(),mark,Output},
+	receive 
+		{From,mark_reply,{Progress,Fitness}}->
+%			io:format("Result:~p~n",[Result]),
+			case get(opmode) of
+				test ->
+					{Progress,[Fitness,0,0]};
+				_ ->
+					{Progress,Fitness}
+			end
+	end.
+
+epiwalker_Mark(ExoSelf,Output,ActuatorId,Parameters)->
+	{Progress,Fitness,TP,TN} = epiwalker_act({mark,Output}),
+%	io:format("Result:~p~n",[Result]),
+	case get(opmode) of
+		test ->
+			{Progress,[Fitness,TP,TN]};
+		_ ->
+			{Progress,Fitness}
+	end.
+
+	-record(epiwalker_state,{
+		table_name,
+		key,
+		mode,
+		prim_seq,
+		pcc,
+		marker_seq,
+		window_size,
+		map,
+		epi_reward,
+		nonepi_reward,
+		next
+	}).
+	epiwalker_act({mark,Output})->
+		S = get(epiwalker_state),
+		TableName=S#epiwalker_state.table_name,
+		[TargetResidue|TailMarkerSeq]=S#epiwalker_state.marker_seq,
+		[Mark] = Output,
+		%Mark=-1,
+		EpiReward = S#epiwalker_state.epi_reward,
+		NonEpiReward = S#epiwalker_state.nonepi_reward,
+		[Fitness,TP,TN]=case (TargetResidue == 69) or (TargetResidue == 101) of
+			true ->%io:format("TargetResidue:~p Mark:~p~n",[TargetResidue,Mark]),
+				case Mark > 0 of
+					true -> 
+						[EpiReward*functions:sat(Mark,1,-1),1,0];
+					false ->
+						[0,0,0]
+				end;
+			false ->
+				case Mark < 0 of
+					true -> [-NonEpiReward*functions:sat(Mark,1,-1),0,1];
+					false -> [0,0,0]
+				end
+		end,
+		[_|TailPrimSeq] = S#epiwalker_state.prim_seq,
+		[_|TailPCCSeq] = S#epiwalker_state.pcc,
+		%io:format("Fitness:~p~n",[Fitness]),
+		case TailMarkerSeq of
+			[] ->
+				case ets:next(S#epiwalker_state.table_name,S#epiwalker_state.key) of
+					'$end_of_table' ->%io:format("EndOfTable~n"),
+						put(epiwalker_state,S#epiwalker_state{next=reset}),
+						{1,Fitness,TP,TN};
+					NextKey ->%io:format("NextKey:~p~n",[NextKey]),
+						put(epiwalker_state,S#epiwalker_state{next=next}),
+						{0,Fitness,TP,TN}
+				end;
+			_ ->%io:format("Act~n"),
+				%io:format("length(TailPrimSeq):~p~n",[length(TailPrimSeq)]),
+				put(epiwalker_state,S#epiwalker_state{prim_seq=TailPrimSeq,marker_seq=TailMarkerSeq,pcc=TailPCCSeq}),
+				{0,Fitness,TP,TN}
+		end.

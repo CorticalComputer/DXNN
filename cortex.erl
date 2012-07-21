@@ -901,7 +901,7 @@ gt(ExoSelf,Specie_Id,[],AffectFitness,AffectProgress)->
 	MaxMissedAttempts = get(max_attempts),
 	{HighestFitness,AttemptIndex} = get(fitness),
 	Goal = get(goal),
-%	io:format("Fitness:~p HighestFitness:~p,AtemptIndex:~p~n",[U_FitnessAcc,HighestFitness,AttemptIndex]),
+	%io:format("Fitness:~p HighestFitness:~p,AtemptIndex:~p~n",[U_FitnessAcc,HighestFitness,AttemptIndex]),
 	case AffectProgress >= 1 of
 		false ->
 			put(fitness,{HighestFitness,AttemptIndex});
@@ -917,7 +917,7 @@ gt(ExoSelf,Specie_Id,[],AffectFitness,AffectProgress)->
 					put(fitness_list,[]),
 					put(instance,1),
 					Avg_Fitness = functions:avg(U_FitnessList),
-%					io:format("U_FitnessList:~p Avg_Fitness:~p~n",[U_FitnessList,Avg_Fitness]),
+					%io:format("U_FitnessList:~p Avg_Fitness:~p~n",[U_FitnessList,Avg_Fitness]),
 					case Avg_Fitness > (HighestFitness + abs(HighestFitness*?MIN_PIMPROVEMENT)) of
 						true ->
 							done = gen_server:call(ExoSelf,{weight_save}),

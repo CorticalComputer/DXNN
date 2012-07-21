@@ -9,7 +9,7 @@
 -compile(export_all).
 -include("records.hrl").
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Technome_Constructor Options %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--define(TEST_CONSTRAINT,#constraint{morphology=forex_trader,sc_types=[hypercube]}).%pole2_balancing3}).
+-define(TEST_CONSTRAINT,#constraint{morphology=epiwalker,sc_types=[neural]}).%pole2_balancing3}).
 %%%NEURON PARAMETERS
 %-define(NEURO_TYPES,[standard]).%[standard,bst],
 %-define(NEURO_ADAPTERS,[none]). %[none,modulated]
@@ -49,7 +49,7 @@ test({Population_Id,Specie_Id,DX_Id,OpMode,SpecCon})->
 		{atomic,_} ->
 			exoself:test(OpMode,dx_test);
 		ERROR ->
-			io:format("********ERROR:technome_constructor:text() ~p~n",[ERROR])
+			io:format("********ERROR:technome_constructor:text(): ~p~n",[ERROR])
 	end.
 
 print_PopulationAgents(Population_Id)->
