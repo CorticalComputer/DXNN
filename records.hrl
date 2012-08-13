@@ -11,7 +11,7 @@
 
 -record(sensor,{id,name,type,cx_id,scape,vl,fanout_ids=[],generation,format,parameters,gt_parameters,phys_rep,vis_rep,pre_f,post_f}). 
 -record(actuator,{id,name,type,cx_id,scape,vl,fanin_ids=[],generation,format,parameters,gt_parameters,phys_rep,vis_rep,pre_f,post_f}).
--record(neuron, {id, generation, cx_id, af, pf, aggr_f, input_idps=[], input_idps_modulation=[], output_ids=[], ro_ids=[]}).
+-record(neuron, {id, generation, cx_id, pre_processor,signal_integrator,af, post_processor, pf, aggr_f, input_idps=[], input_idps_modulation=[], output_ids=[], ro_ids=[]}).
 -record(cortex, {id, agent_id, neuron_ids=[], sensor_ids=[], actuator_ids=[]}).
 -record(substrate, {id, agent_id, densities, linkform, plasticity=none, cpp_ids=[],cep_ids=[]}). 
 -record(agent,{id, encoding_type, generation, population_id, specie_id, cx_id, fingerprint, constraint, evo_hist=[], fitness=0, innovation_factor=0, pattern=[], tuning_selection_f, annealing_parameter, tuning_duration_f, perturbation_range, mutation_operators,tot_topological_mutations_f,heredity_type,substrate_id}).
@@ -29,15 +29,16 @@
 	neural_afs=[
 		tanh,
 		cos,
-		gaussian,
-		absolute
+		gaussian
+		%sqrt
+		%absolute
 	], %[tanh,cos,gaussian,absolute,sin,sqrt,sigmoid],
 	neural_pfns=[none], %[none,hebbian_w,hebbian,ojas_w,ojas,self_modulationV1,self_modulationV2,self_modulationV2,self_modulationV3,self_modulationV4,self_modulationV5,self_modulationV6,neuromodulation]
 	substrate_plasticities=[none],
 	substrate_linkforms = [l2l_feedforward],%[l2l_feedfrward,jordan_recurrent,fully_connected]
 	neural_aggr_fs=[dot_product], %[dot_product, mult_product, diff]
 	tuning_selection_fs=[dynamic_random], %[all,all_random, recent,recent_random, lastgen,lastgen_random]
-	tuning_duration_f={const,10}, %[{const,20},{nsize_proportional,0.5},{nweight_proportional,0.5}...]
+	tuning_duration_f={wsize_proportional,0.5}, %[{const,20},{nsize_proportional,0.5},{wsize_proportional,0.5}...]
 	annealing_parameters=[1], %[1,0.9]
 	perturbation_ranges=[1], %[0.5,1,2,3...]
 	agent_encoding_types= [neural], %[neural,substrate]
@@ -50,7 +51,7 @@
 		{add_outlink,1}, 
 		{add_inlink,1}, 
 		{add_neuron,1}, 
-		{outsplice,1}, 
+		{outsplice,1},
 		{add_sensor,1}, 
 		{add_actuator,1},
 		{mutate_plasticity_parameters,1},
@@ -96,6 +97,7 @@
 %scape= {private|public, atom()::ScapeName}
 %vl= int()
 %fanout_ids= [neuron.id...]
+%	fanout_idps= [{all,neuron.id}|{single,Index,neuron.Id}...]
 %generation=int()
 %format= {no_geo|geo,[int()::Resolution...]}
 %parameters= [any()...]
@@ -219,3 +221,28 @@
 
 %%%scape
 %id= atom()|float()|{float()::Unique_Id,scape}|{atom()::ScapeName,scape}
+
+%export_population(Population_Id)->
+	%create an ets file
+	%backup population to ets
+	%give it a timestamp
+	%save to disk
+%	ok.
+	
+%export_champion(Champion_Id)->
+	%create ets file.
+	%backup champion to file.
+	%give it a timestamp
+	%save to disk
+%	ok.
+	
+%updated_trace(Experiment_Id)->
+	%stores more information
+	%comes with the population where agents don't get deleted
+%	ok.
+	
+%updated_population(Population_Id)->
+%	ok.
+	%agents no longer get deleted, only noted if active or inactive
+	%agents not who their parents were
+	%
