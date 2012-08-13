@@ -11,10 +11,10 @@
 -record(stat,{morphology,specie_id,avg_subcores,subcores_std,avg_neurons,neurons_std,avg_fitness,fitness_std,max_fitness,min_fitness,avg_diversity,gentest_fitness,evaluations,time_stamp}).
 -record(fingerprint,{cf,ct,constraint,history,tot_subcores,tot_substrates,tot_neurons,subcore_pattern,neuro_patterns}).
 -record(trace,{stats=[],tot_evaluations=0,step_size=500,next_step=500}).
--record(stats,{morphology,avg_subcores=[],avg_neurons=[],avg_fitness=[],max_fitness=[],min_fitness=[],avg_diversity=[],evaluations=[],tot_evaluations=0,step_size=500,next_step=500}).
--record(population,{id,type,trace=#trace{},specie_ids=[],topspecie_ids,polis_id,evo_strat}).
--record(specie,{id,morphology,constraint,fingerprint,trace=#trace{},cur_stat,avg_fitness,stagnation_factor,dx_ids=[],dead_pool=[],topdx_ids=[],championdx_ids=[],population_id}).
--record(dx,{id,cx_id,n_ids,specie_id,constraint,morphology,generation,fitness,profile,summary,evo_hist,mode,evo_strat}).
+%-record(stats,{morphology,avg_subcores=[],avg_neurons=[],avg_fitness=[],max_fitness=[],min_fitness=[],avg_diversity=[],evaluations=[],tot_evaluations=0,step_size=500,next_step=500}).
+-record(population,{id,type,trace=#trace{},specie_ids=[],topspecie_ids,polis_id,evo_strat,seed_agent_ids=[]}).
+-record(specie,{id,morphology,constraint,fingerprint,trace=#trace{},cur_stat,avg_fitness,stagnation_factor,dx_ids=[],dead_pool=[],topdx_ids=[],championdx_ids=[],population_id,seed_agent_ids=[]}).
+-record(dx,{id,cx_id,n_ids,specie_id,constraint,morphology,generation,fitness,profile,summary,evo_hist,mode,evo_strat,offspring_ids=[]}).
 -record(cortex,{id,sensors,actuators,cf,ct,type,plasticity,pattern,cids,su_id,link_form,substrate_link_form,dimensions,densities,generation}). %%%id = {{LayerIndex,NumId},subcore}
 -record(subcore,{id,i,o,cf,ct,type,plasticity,pattern,cids,su_id,link_form,dimensions,densities,generation}).
 -record(neuron,{id,ivl,i,ovl,o,lt,ro,type,dwp,su_id,generation}). %%%id = {{LayerIndex,NumId},neuron}
@@ -58,6 +58,8 @@
 	neural_pfs = [none],%[none,modulated]
 	neural_afs = [tanh,gaussian,sin,absolute,sgn,linear,log,sqrt] %[tanh,gaussian,sin,linear,absolute,sgn,log,sqrt]
 }).
+
+-record(hall_of_fame,{fitness,agents}).
 
 -record(agent_evo_strat,{
 	functional = true,
@@ -149,6 +151,9 @@
 %championdx_ids: [Id1,Id2...Idn]
 %population_id: Id
 %last_improved: Number of generations ago an improvement occured. Over 3 is considered stagnant and the population if it is not in top 3, dies out.
+%hall_of_fame:[{Fitness:List,Agent_Id}...]
+%stagnation_factor|last_improved:Last time the hall_of_fame was improved, with a new agent entrance.
+%dead_pool:[{Fitness:List,Agent_Id}...]
 %======================================DX======================================
 %id = UniqueId
 %citizenship_id = citizen_id
@@ -158,7 +163,7 @@
 %summary = [tot_substrates,tot_subcores,tot_neurons,tot_sclinks,tot_nlinks,tot_sigmoids,tot_sines,tot_guassians,tot_linears,tot_hebbians]
 %evo_hist: Evolutionary History in a list: [{Generation,TypeOfMutagen,Applied_On,From,To}...]
 %mode: [online,offline]. Active when summoned, inactive when not summoned.
-
+%parent_id: agent_Id of the parent agent (or parents?).
 %======================================CORTEX======================================
 %id: {{0,0},core,UniqueId}
 %type:[neural|hypercube]

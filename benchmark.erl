@@ -18,7 +18,7 @@
 -define(BENCHMARK_MORPHOLOGIES,[forex_trader]).
 -define(DEFAULT_OPMODE,gt).
 -define(DEFAULT_ST,competition).
--define(INIT_CONSTRAINTS,[#constraint{morphology=Morphology,sc_types=SC_Types, sc_hypercube_plasticity=[none], sc_neural_linkform=LinkForm, neural_afs = [tanh]}|| Morphology<-[epiwalker],LinkForm<-[recursive], SC_Types<-[[neural]]]).
+-define(INIT_CONSTRAINTS,[#constraint{morphology=Morphology,sc_types=SC_Types, sc_hypercube_plasticity=[none], sc_neural_linkform=LinkForm, neural_afs = [tanh]}|| Morphology<-[pole2_balancing3],LinkForm<-[recursive], SC_Types<-[[neural]]]).
 %-record(state,{pm_parameters,table_name,run_index=1,tot_evaluations=0,tot_generations=0,goal_status,tunning_status,success_acc=[],failure_acc=[],diversity_acc=[],trace_acc=[]}).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %Starts and ends Neural Networks with various preset parameters and options, and polls the logger for information about each run.
@@ -62,7 +62,7 @@ start(Id)->
 		init_constraints=?INIT_CONSTRAINTS,
 		progress_flag=in_progress,
 		run_index=1,
-		tot_runs=10,
+		tot_runs=1000,
 		started={date(),time()},
 		interruptions=[]
 	},

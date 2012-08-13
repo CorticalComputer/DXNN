@@ -78,6 +78,15 @@ mutate(DX_Id)->
 	technome_constructor:reset_fitness(DX_Id),
 	find_AbroptEdges(DX_Id), %What is a NeuroEdge?
 	ok.
+	
+test(DX_Id,MutationOperator)->
+	F = fun()->
+		[DX] = mnesia:dirty_read({dx,DX_Id}),
+		Summary = DX#dx.summary,
+		Cx_Id = DX#dx.cx_id,
+		modular_mutator:MutationOperator(DX_Id,Cx_Id)
+	end,
+	mnesia:transaction(F).
 
 %-record(agent_evo_strat,{
 %	strategies_mutation_prob = 0,%Probability of mutating an evolutionary strategies parameter, increments and decrements based on how far from the edge: 0-100%.

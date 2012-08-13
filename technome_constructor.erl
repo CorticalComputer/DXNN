@@ -9,7 +9,7 @@
 -compile(export_all).
 -include("records.hrl").
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Technome_Constructor Options %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--define(TEST_CONSTRAINT,#constraint{morphology=epiwalker,sc_types=[neural]}).%pole2_balancing3}).
+-define(TEST_CONSTRAINT,#constraint{morphology=pole2_balancing3,sc_types=[neural]}).%pole2_balancing3}).
 %%%NEURON PARAMETERS
 %-define(NEURO_TYPES,[standard]).%[standard,bst],
 %-define(NEURO_ADAPTERS,[none]). %[none,modulated]
@@ -24,6 +24,24 @@
 -define(OPMODE,gt).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %============================================================Technome Construction Functions============================================================		
+create_agent()->
+	{A,B,C} = now(),
+	random:seed(A,B,C),
+	Specie_Id = ?INIT_SPECIE_ID,
+	DX_Id = ?INIT_DX_ID,
+	SpecCon = ?TEST_CONSTRAINT,
+	F = fun()->
+		case mnesia:read({dx,dx_test}) of
+			[] ->
+				done;
+			_ ->
+				delete_dx(dx_test)
+				%io:format("Result:~p~n",[Result])
+		end,
+		modular_constructor:construct_DX(Specie_Id,DX_Id,SpecCon)
+	end,
+	mnesia:transaction(F).
+
 test()->
 	Init_PopulationId = ?INIT_POPULATION_ID,
 	Init_SpecieId = ?INIT_SPECIE_ID,
@@ -84,6 +102,7 @@ view_dx(DX_Id)->
 			io:format("***Neuron:~n~p~n",[N]).
 
 	print_profile(Profile)->
+		io:format("Profile:~p~n",[Profile]),
 		[TotCores,TotSubCores,TotNeurons] = Profile,
 		io:format("TotCores:~p TotSubCores:~p TotNeurons:~p~n",[TotCores,TotSubCores,TotNeurons]).
 
