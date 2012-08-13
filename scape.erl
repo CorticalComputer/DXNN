@@ -91,7 +91,20 @@ pb_sim(ExoSelf_PId,S)->
 				true ->
 					case (TimeStep > U_S#pb_state.goal_steps) of
 						true ->%Fitness goal reached.
-							From_PId ! {self(),goal_reached,1},
+							Fitness = case Damping_Flag of
+								without_damping ->
+									1;
+								with_damping ->
+									Fitness1 = TimeStep/1000,
+									Fitness2 = case TimeStep < 100 of
+										true ->
+											0;
+										false ->
+											0.75/(abs(CPos) +abs(CVel) + abs(PAngle1) + abs(PVel1))
+									end,
+									Fitness1*0.1 + Fitness2*0.9
+							end,
+							From_PId ! {self(),Fitness,goal_reached},
 							scape:pb_sim(ExoSelf_PId,#pb_state{});
 						false ->
 							From_PId ! {self(),0,1},

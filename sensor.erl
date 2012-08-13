@@ -28,6 +28,7 @@ loop(Id,ExoSelf_PId,Cx_PId,Scape,SensorName,VL,Parameters,Fanout_PIds)->
 	receive
 		{Cx_PId,sync}->
 			SensoryVector = sensor:SensorName(ExoSelf_PId,VL,Parameters,Scape),
+			%advanced_fanout(PId,SensoryVector,Fanout_PIdPs)
 			[Pid ! {self(),forward,SensoryVector} || Pid <- Fanout_PIds],
 			loop(Id,ExoSelf_PId,Cx_PId,Scape,SensorName,VL,Parameters,Fanout_PIds);
 		{ExoSelf_PId,terminate} ->
@@ -35,6 +36,13 @@ loop(Id,ExoSelf_PId,Cx_PId,Scape,SensorName,VL,Parameters,Fanout_PIds)->
 			ok
 	end.
 %The sensor process accepts only 2 types of messages, both from the cortex. The sensor can either be triggered to begin gathering sensory data based on its sensory role, or terminate if the cortex requests so.
+
+advanced_fanout(PId,SensoryVector,[{all,Fanout_PId}|Fanout_PIdPs])->
+	Fanout_PId ! {self(),forward,SensoryVector},
+	advanced_fanout(PId,SensoryVector,Fanout_PIdPs);
+advanced_fanout(PId,SensoryVector,[{single,Index,Fanout_PId}|Fanout_PIdPs])->
+	Fanout_PId ! {self(),forward, [lists:nth(Index,SensoryVector)]},
+	advanced_fanout(PId,SensoryVector,Fanout_PIdPs).
 
 rng(ExoSelf_PId,VL,_Scape)->
 	rng1(VL,[]).
@@ -112,9 +120,11 @@ fx_PCI(Exoself_Id,VL,Parameters,Scape)->
 	case get(opmode) of
 		gt	->
 			%Normal, assuming we have 10000 rows, we start from 1000 to 6000
-			Scape ! {self(),sense,'EURUSD15',close,[HRes,VRes,graph_sensor],1000,200};
+			Scape ! {self(),sense,'EURUSD15',close,[HRes,VRes,graph_sensor],2000,1000};
 		benchmark ->
-			Scape ! {self(),sense,'EURUSD15',close,[HRes,VRes,graph_sensor],200,last}
+			Scape ! {self(),sense,'EURUSD15',close,[HRes,VRes,graph_sensor],1001,500};
+		test ->
+			Scape ! {self(),sense,'EURUSD15',close,[HRes,VRes,graph_sensor],501,last}
 	end,
 	receive 
 		{_From,Result}->
@@ -126,9 +136,11 @@ fx_PLI(Exoself_Id,VL,Parameters,Scape)->
 	case get(opmode) of
 		gt	->
 			%Normal, assuming we have 10000 rows, we start from 1000 to 6000
-			Scape ! {self(),sense,'EURUSD15',close,[HRes,list_sensor],1000,200};
+			Scape ! {self(),sense,'EURUSD15',close,[HRes,list_sensor],5000,1000};
 		benchmark ->
-			Scape ! {self(),sense,'EURUSD15',close,[HRes,list_sensor],200,last}
+			Scape ! {self(),sense,'EURUSD15',close,[HRes,list_sensor],1001,500};
+		test ->
+			Scape ! {self(),sense,'EURUSD15',close,[HRes,list_sensor],501,last}
 	end,
 	receive 
 		{_From,Result}->

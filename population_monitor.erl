@@ -20,7 +20,7 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Population Monitor Options & Parameters %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -define(INIT_CONSTRAINTS,[#constraint{morphology=Morphology,connection_architecture=CA, population_evo_alg_f=generational,neural_pfns=[none],agent_encoding_types=[neural],substrate_plasticities=[iterative],substrate_linkforms = [l2l_feedforward]} || Morphology<-[epitopes],CA<-[feedforward]]).
 -record(state,{
-	op_mode = gt,
+	op_mode = [gt],
 	population_id = test,
 	activeAgent_IdPs = [],
 	agent_ids = [],
@@ -283,14 +283,9 @@ handle_cast({From,evaluations,Specie_Id,AEA,AgentCycleAcc,AgentTimeAcc},S)->
 	U_TotEvaluations = S#state.tot_evaluations + AgentEvalAcc,
 	SEval_Acc=get({evaluations,Specie_Id}),
 	put({evaluations,Specie_Id},SEval_Acc+AgentEvalAcc),
-	case Eval_Acc rem S#state.step_size of
-		0 ->
-			io:format("Evaluations/Step:~p~n",[Eval_Acc]);
-		_ ->
-			done
-	end,
 	U_S=case U_EvalAcc >= S#state.step_size of
 		true ->
+			io:format("Evaluations/Step:~p~n",[Eval_Acc]),
 			gather_STATS(S#state.population_id,U_EvalAcc,S#state.op_mode),
 			Population_Id = S#state.population_id,
 			P = genotype:dirty_read({population,Population_Id}),
@@ -415,7 +410,7 @@ summon_agents(_OpMode,[],Acc)->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 test()->
-	init_population(#state{op_mode = benchmark},?INIT_CONSTRAINTS).
+	init_population(#state{op_mode = [gt,benchmark]},?INIT_CONSTRAINTS).
 %The test/0 function starts the population monitor through init_population/1 with a set of default parameters specified by the macros of this module.
 
 prep_PopState(PMP,Specie_Constraints)->
@@ -688,30 +683,33 @@ gather_STATS(Population_Id,EvaluationsAcc,OpMode)->
 		mnesia:dirty_write(S#specie{stats=U_STATS}),
 		STAT.
 
-	run_GenTest(S,benchmark)->
-		ChampionAgent_Id = case S#specie.champion_ids of%TODO:Update the manner in which champions are stored and added, currently, they are not deleted with the population... acumulate over time, are 3 at a time...
-			[Id] ->
-				Id;
-			[Id|_] ->
-				Id;
-			[]->
-				void
-		end,
-		case ChampionAgent_Id of
-			void ->
-				{0,void};
-			_ ->
-				ChampionAgent_PId=exoself:start(ChampionAgent_Id,self(),benchmark),
-				receive
-					{ChampionAgent_PId,benchmark_complete,Specie_Id,Fitness,Cycles,Time}->
-						genotype:print(ChampionAgent_Id),
-						{Fitness,ChampionAgent_Id}
-					%Msg ->
-					%	io:format("Msg:~p~n",[Msg])
-				end
-		end;
-	run_GenTest(_S,_)->
-		0.
+	run_GenTest(S,OpMode)->
+		case lists:member(benchmark,OpMode) of
+			true ->
+				ChampionAgent_Id = case S#specie.champion_ids of%TODO:Update the manner in which champions are stored and added, currently, they are not deleted with the population... acumulate over time, are 3 at a time...
+					[Id] ->
+						Id;
+					[Id|_] ->
+						Id;
+					[]->
+						void
+				end,
+				case ChampionAgent_Id of
+					void ->
+						{0,void};
+					_ ->
+						ChampionAgent_PId=exoself:start(ChampionAgent_Id,self(),benchmark),
+						receive
+							{ChampionAgent_PId,benchmark_complete,Specie_Id,Fitness,Cycles,Time}->
+								genotype:print(ChampionAgent_Id),
+								{Fitness,ChampionAgent_Id}
+							%Msg ->
+							%	io:format("Msg:~p~n",[Msg])
+						end
+				end;
+			false ->
+				{0,void}
+		end.
 
 calculate_SpecieAvgNodes({specie,S})->
 	Agent_Ids = S#specie.agent_ids,

@@ -33,6 +33,56 @@ competition(ProperlySorted_AgentSummaries,NeuralEnergyCost,PopulationLimit)->
 	{NewGenAgent_Ids,TopAgent_Ids}.
 %The competition/3 is part of the selection algorithm dubbed "competition". The function first executes calculate_alotments/4 to calculate the number of offspring alloted for each agent in the Sorted_AgentSummaries list. The function then calculates the Normalizer value, which is used then used to proportionalize the alloted number of offspring to each agent, to ensure that the final specie size is within PopulationLimit. The function then drops into the gather_survivors/3 function which, using the normalized offspring allotment values, creates the actual mutant offspring.
 
+competition_WithDiversifier(ProperlySorted_AgentSummaries,NeuralEnergyCost,PopulationLimit)->
+	TotSurvivors = round(length(ProperlySorted_AgentSummaries)*?SURVIVAL_PERCENTAGE),
+	Valid_AgentSummaries=uniquify(ProperlySorted_AgentSummaries,TotSurvivors),
+	%Valid_AgentSummaries = lists:sublist(ProperlySorted_AgentSummaries,TotSurvivors),
+	Invalid_AgentSummaries = ProperlySorted_AgentSummaries -- Valid_AgentSummaries,
+	{_FitnessList,_TotNList,Invalid_AgentIds} = lists:unzip3(Invalid_AgentSummaries),
+	[genotype:delete_Agent(Agent_Id) || Agent_Id <- Invalid_AgentIds],
+	io:format("Valid_AgentSummaries:~p~n",[Valid_AgentSummaries]),
+	io:format("Invalid_AgentSummaries:~p~n",[Invalid_AgentSummaries]),
+	TopAgentSummaries = lists:sublist(Valid_AgentSummaries,3),
+	{_TopFitnessList,_TopTotNs,TopAgent_Ids} = lists:unzip3(TopAgentSummaries),
+	io:format("NeuralEnergyCost:~p~n",[NeuralEnergyCost]),
+
+	{AlotmentsP,NextGenSize_Estimate} = calculate_alotments(Valid_AgentSummaries,NeuralEnergyCost,[],0),
+	Normalizer = NextGenSize_Estimate/PopulationLimit,
+	io:format("Population size normalizer:~p~n",[Normalizer]),
+	NewGenAgent_Ids = gather_survivors(AlotmentsP,Normalizer,[]),
+	{NewGenAgent_Ids,TopAgent_Ids}.
+	
+	
+	uniquify(ProperlySorted_DXSummaries,TotSurvivors)->
+	%[DX_Summary|Sorted_DXSummaries] = ProperlySorted_DXSummaries,%lists:sublist(ProperlySorted_DXSummaries,TotSurvivors),
+	[DX_Summary|Sorted_DXSummaries] = lists:sublist(ProperlySorted_DXSummaries,TotSurvivors),
+	{Fitness,TotN,_DX_Id} = DX_Summary,
+	Diversified_DXSummaries = diversify([{Fitness,TotN}],Sorted_DXSummaries,TotSurvivors-1,[DX_Summary]).
+			
+		diversify(_TopProfiles,_Sorted_DXSummaries,0,Acc)->
+			lists:reverse(Acc);
+		diversify(Profiles,[DX_Summary|Sorted_DXSummaries],KeepTot,Acc)->
+			{Fitness,TotN,DX_Id} = DX_Summary,
+			%case compare_profiles(Profiles,Profile) of
+			case compare_profilesf(Profiles,{Fitness,TotN}) of
+				true->
+					diversify([{Fitness,TotN}|Profiles],Sorted_DXSummaries,KeepTot-1,[DX_Summary|Acc]);
+				false ->
+					diversify(Profiles,Sorted_DXSummaries,KeepTot,Acc)
+			end;
+		diversify(_TopProfiles,[],KeepTot,Acc)->
+			lists:reverse(Acc).
+			
+			compare_profilesf([{TopFitness,TopTotN}|TopProfiles],{Fitness,TotN})->%Better make Fitnes part of profile
+				case (TopTotN == TotN) and (TopFitness == Fitness) of
+					true ->
+						false;
+					false ->
+						compare_profilesf(TopProfiles,{Fitness,TotN})
+				end;
+			compare_profilesf([],_ProfileP)->
+				true.
+
 	calculate_alotments([{Fitness,TotNeurons,Agent_Id}|Sorted_AgentSummaries],NeuralEnergyCost,Acc,NewPopAcc)->
 		NeuralAlotment = Fitness/NeuralEnergyCost,
 		MutantAlotment = NeuralAlotment/TotNeurons,

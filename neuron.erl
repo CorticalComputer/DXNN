@@ -65,7 +65,10 @@ prep(ExoSelf_PId) ->
 
 loop(S,ExoSelf_PId,[ok],[ok],SIAcc,MIAcc)->
 	PF = S#state.pf,
+	%PreProcessors=S#state.pre_processors,
+	%SignalIntegrator=S#state.signal_integrator,
 	AF = S#state.af,
+	%PostProcessors=S#state.post_processors,
 	AggrF = S#state.aggrf,
 	{PFName,PFParameters} = PF,
 	%io:format("self:~p~n SIAcc:~p~n MIAcc:~p~n",[self(), SIAcc,MIAcc]),
@@ -172,6 +175,7 @@ perturb_IPIdPs(Spread,Input_PIdPs)->
 	MP = 1/math:sqrt(Tot_Weights),
 	perturb_IPIdPs(Spread,MP,Input_PIdPs,[]).
 perturb_IPIdPs(Spread,MP,[{Input_PId,WeightsP}|Input_PIdPs],Acc)->
+	%MP = 1/math:sqrt(length(WeightsP)),
 	U_WeightsP = perturb_weightsP(Spread,MP,WeightsP,[]),
 	perturb_IPIdPs(Spread,MP,Input_PIdPs,[{Input_PId,U_WeightsP}|Acc]);
 perturb_IPIdPs(_Spread,_MP,[],Acc)->
@@ -179,9 +183,12 @@ perturb_IPIdPs(_Spread,_MP,[],Acc)->
 %The perturb_IPIdPs/1 function calculates the probability with which each neuron in the Input_PIdPs is chosen to be perturbed. The probablity is based on the total number of weights in the Input_PIdPs list, with the actual mutation probablity equating to the inverse of square root of total number of weights. The perturb_IPIdPs/3 function goes through each weights block and calls the perturb_weights/3 to perturb the weights.
 
 	perturb_weightsP(Spread,MP,[{W,LPs}|Weights],Acc)->
+		%io:format("Spread:~p~n",[Spread]),
 		U_W = case random:uniform() < MP of
 			true->
-				sat((random:uniform()-0.5)*2*Spread+W,-?SAT_LIMIT,?SAT_LIMIT);
+				DW = (random:uniform()-0.5)*Spread,
+				%io:format("self:~p DW:~p~n",[DW,self()]),
+				sat(W+DW,-?SAT_LIMIT,?SAT_LIMIT);
 			false ->
 				W
 		end,

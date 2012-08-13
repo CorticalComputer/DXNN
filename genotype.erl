@@ -51,7 +51,10 @@ construct_Cortex(Agent_Id,Generation,SpecCon,Encoding_Type,SPlasticity,SLinkform
 		neural ->
 			Sensors = [S#sensor{id={{-1,generate_UniqueId()},sensor},cx_id=Cx_Id,generation=Generation}|| S<- morphology:get_InitSensors(Morphology)],
 			Actuators = [A#actuator{id={{1,generate_UniqueId()},actuator},cx_id=Cx_Id,generation=Generation}||A<-morphology:get_InitActuators(Morphology)],
-			N_Ids=construct_InitialNeuroLayer(Cx_Id,Generation,SpecCon,Sensors,Actuators,[],[]),
+			%N_Ids=construct_InitialNeuroLayer(Cx_Id,Generation,SpecCon,Sensors,Actuators,[],[]),
+			[write(S) || S <- Sensors],
+			[write(A) || A <- Actuators],
+			{N_Ids,Pattern} = construct_SeedNN(Cx_Id,Generation,SpecCon,Sensors,Actuators),
 			S_Ids = [S#sensor.id || S<-Sensors],
 			A_Ids = [A#actuator.id || A<-Actuators],
 			Cortex = #cortex{
@@ -74,7 +77,10 @@ construct_Cortex(Agent_Id,Generation,SpecCon,Encoding_Type,SPlasticity,SLinkform
 			Densities = [Depth,1|lists:duplicate(Dimensions-2,Density)], %[X,Y,Z,T...]
 			Substrate_CPPs = [CPP#sensor{id={{-1,generate_UniqueId()},sensor},cx_id=Cx_Id,generation=Generation}|| CPP<- morphology:get_InitSubstrateCPPs(Dimensions,SPlasticity)],
 			Substrate_CEPs = [CEP#actuator{id={{1,generate_UniqueId()},actuator},cx_id=Cx_Id,generation=Generation}||CEP<-morphology:get_InitSubstrateCEPs(Dimensions,SPlasticity)],
-			N_Ids=construct_InitialNeuroLayer(Cx_Id,Generation,SpecCon,Substrate_CPPs,Substrate_CEPs,[],[]),
+			%N_Ids=construct_InitialNeuroLayer(Cx_Id,Generation,SpecCon,Substrate_CPPs,Substrate_CEPs,[],[]),
+			[write(Substrate_CPP) || Substrate_CPP <- Substrate_CPPs],
+			[write(Substrate_CEP) || Substrate_CEP <- Substrate_CEPs],
+			{N_Ids,Pattern} = construct_SeedNN(Cx_Id,Generation,SpecCon,Sensors,Actuators),
 			%io:format("Sensors:~p~n Actuators:~p~n Substate_CPPs:~p~n Substrate_CEPs:~p~n",[Sensors,Actuators,Substrate_CPPs,Substrate_CEPs]),
 			S_Ids = [S#sensor.id || S<-Sensors],
 			A_Ids = [A#actuator.id || A<-Actuators],
@@ -99,28 +105,29 @@ construct_Cortex(Agent_Id,Generation,SpecCon,Encoding_Type,SPlasticity,SLinkform
 			}
 	end,
 	write(Cortex),
-	{Cx_Id,[{0,N_Ids}],Substrate_Id}.
+	{Cx_Id,Pattern,Substrate_Id}.
 %construct_Cortex/3 generates a new Cx_Id, extracts the morphology from the Constraint record passed to it in SpecCon, and then extracts the initial sensors and actuators for that morphology. After the sensors and actuators are extracted, the function calls construct_InitialNeuroLayer/7, which creates a single layer of neurons connected to the specified sensors and actuators, and returns the ids of the created neurons. Finally, the sensors and actuator ids are extracted from the sensors and actuators, and the cortex record is composed and stored to the database.
 
 construct_SeedNN(Cx_Id,Generation,SpecCon,Sensors,Actuators)->
-	TotLayers=random:uniform(3),
+	TotLayers=random:uniform(1),
 	TotInputVals = lists:sum([S#sensor.vl || S <- Sensors]),
 	TotOutputVals= lists:sum([A#actuator.vl || A <- Actuators]),
 	TotIOVals = TotInputVals + TotOutputVals,
-
-	LayerDensities=lists:reverse([TotOutputVals|[random:uniform(TotIOVals) || _<- lists:seq(1,TotLayers-1)]]),
-	StepSize = 2/(TotLayers+2-1),
-	{Output_NIds,[_|Ids]}=construct_HiddenLayers(Cx_Id,Generation,LayerDensities,-1,-1+StepSize,[S#sensor.id||S<-Sensors],SpecCon,[]),
-	N_Ids = lists:flatten(Ids),
-	connect_to_actuators(Generation,Output_NIds,Actuators).
 	
-		construct_HiddenLayers(Cx_Id,Generation,[TotNeurons|LayerDensities],LayerIndex,StepSize,PrevLayer,SpecCon,Acc)->
+	LayerDensities=lists:reverse([TotOutputVals|[random:uniform(round(math:sqrt(TotIOVals))) || _<- lists:seq(1,TotLayers-1)]]),
+	StepSize = 2/(TotLayers+2-1),
+	{Output_NIds,[_|Ids],Pattern}=construct_HiddenLayers(Cx_Id,Generation,LayerDensities,-1+StepSize,StepSize,[S#sensor.id||S<-Sensors],SpecCon,[],[]),
+	N_Ids = lists:flatten(Ids),
+	connect_to_actuators(Generation,Output_NIds,Actuators),
+	{N_Ids,Pattern}.
+	
+		construct_HiddenLayers(Cx_Id,Generation,[TotNeurons|LayerDensities],LayerIndex,StepSize,PrevLayer,SpecCon,Acc,PatternAcc)->
 			N_Ids = [{{LayerIndex,genotype:generate_UniqueId()},neuron} || _ <- lists:seq(1,TotNeurons)],
 			[genotype:construct_Neuron(Cx_Id,Generation,SpecCon,N_Id,[],[]) || N_Id <- N_Ids],
 			[genome_mutator:link_FromElementToElement(Generation,From_Id,To_Id) || From_Id <- PrevLayer, To_Id<-N_Ids], %Links all current ones to previous layer ones
-			construct_HiddenLayers(Cx_Id,Generation,LayerDensities,LayerIndex+StepSize,StepSize,N_Ids,SpecCon,[PrevLayer|Acc]);
-		construct_HiddenLayers(Cx_Id,Generation,[],_LayerIndex,_StepSize,PrevLayer,SpecCon,Acc)->
-			{PrevLayer,lists:reverse(Acc)}.
+			construct_HiddenLayers(Cx_Id,Generation,LayerDensities,LayerIndex+StepSize,StepSize,N_Ids,SpecCon,[PrevLayer|Acc],[{LayerIndex,N_Ids}|PatternAcc]);
+		construct_HiddenLayers(Cx_Id,Generation,[],_LayerIndex,_StepSize,PrevLayer,SpecCon,Acc,PatternAcc)->
+			{PrevLayer,lists:reverse([PrevLayer|Acc]),lists:reverse(PatternAcc)}.
 			
 		connect_to_actuators(Generation,NIds,[A|Actuators])->
 			{Output_NIds,Remainder_NIds} = lists:split(A#actuator.vl,NIds),
@@ -460,7 +467,8 @@ clone_Agent(Agent_Id,CloneAgent_Id)->
 				});
 			Substrate_Id ->
 				Substrate = read({substrate,A#agent.substrate_id}),
-				[CloneSubstrate_Id] = map_ids(IdsNCloneIds,[A#agent.substrate_id],[]),
+				[CloneSubstrate_Id] = map_ids(IdsNCloneIds,
+[A#agent.substrate_id],[]),
 				CloneCPP_Ids = map_ids(IdsNCloneIds,Substrate#substrate.cpp_ids,[]),
 				CloneCEP_Ids = map_ids(IdsNCloneIds,Substrate#substrate.cep_ids,[]),
 				clone_neurons(IdsNCloneIds,Cx#cortex.neuron_ids),
@@ -495,6 +503,7 @@ clone_Agent(Agent_Id,CloneAgent_Id)->
 	mnesia:transaction(F),
 	CloneAgent_Id.
 %clone_Agent/2 accepts Agent_Id, and CloneAgent_Id, and then clones the agent, giving the clone CloneAgent_Id. The function first creates an ETS table to which it writes the ids of all the elements of the genotype, and their corresponding clone ids. Once all ids and clone ids have been generated, the function then begins to clone the actual elements. clone_Agent/2 first clones the neurons using clone_neurons/2, then the sensors using clone_sensonrs/2, and finally the actuators using clone_actuators. Once these elements are cloned, the function writes to database the clone versions of the cortex and the agent records, by writing to databse the original records with updated ids.
+
 
 	map_ids(TableName,[Id|Ids],Acc)->
 		CloneId=case Id of
@@ -608,7 +617,7 @@ test()->
 	Specie_Id = test,
 	Agent_Id = test,
 	CloneAgent_Id = test_clone,
-	SpecCon = #constraint{morphology=pole_balancing,connection_architecture=feedforward, population_evo_alg_f=generational,neural_afs=[tanh],agent_encoding_types=[substrate],substrate_plasticities=[none]},
+	SpecCon = #constraint{morphology=pole_balancing,connection_architecture=recurrent, population_evo_alg_f=generational,neural_afs=[tanh],agent_encoding_types=[neural],substrate_plasticities=[none]},
 	F = fun()->
 		construct_Agent(Specie_Id,Agent_Id,SpecCon),
 		clone_Agent(Specie_Id,CloneAgent_Id),
@@ -624,7 +633,7 @@ create_test()->
 	Specie_Id = test,
 	Agent_Id = test,
 	%SpecCon = #constraint{},
-	SpecCon = #constraint{morphology=epitopes,connection_architecture=recurrent, population_evo_alg_f=generational,neural_afs=[tanh],agent_encoding_types=[neural],substrate_plasticities=[none]},
+	SpecCon = #constraint{morphology=pole_balancing,connection_architecture=recurrent, population_evo_alg_f=generational,neural_afs=[tanh],agent_encoding_types=[neural],substrate_plasticities=[none]},
 	F = fun()->
 		case genotype:read({agent,test}) of
 			undefined ->
