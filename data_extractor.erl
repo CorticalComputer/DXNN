@@ -16,14 +16,14 @@
 check_table(TableName)->
 	{ok,TN} = ets:file2tab(TableName),
 	io:format("TN:~p~n",[TN]),
-	table_dump(TN,ets:first(TN)),
+	table_dump(TN,ets:first(TN),0),
 	ets:delete(TN).
 	
-	table_dump(TN,'$end_of_table')->
-		ok;
-	table_dump(TN,Key)->
+	table_dump(TN,'$end_of_table',Index)->
+		io:format("Total entries in table:~p~n",[Index]);
+	table_dump(TN,Key,Index)->
 		io:format("~p~n",[ets:lookup(TN,Key)]),
-		table_dump(TN,ets:next(TN,Key)).
+		table_dump(TN,ets:next(TN,Key),Index+1).
 
 start(URL,SplitVals,FileName)->
 	start(URL,SplitVals,FileName,?PACKAGER).
@@ -167,4 +167,38 @@ epitopes(TableName,[],Index)->
 	io:format("Stores to ETS table:~p Index reached:~p~n",[TableName,Index-1]).
 	
 %aaindex1(TableName,[Line|Lines],Index)->
+
+%data_extractor:start("Bioinformatics_Data/incompletelearnepitopemarkup/AntiJen.how",[10,32],training).		
+glass(TableName,[Line|Lines],_Index1)->
+	%ets:insert(TableName,{Index,Description,PrimSeq,MarkerSeq}),
+	io:format("Line: ~p~n",[Line]),
+	[Index|SeqP] = Line,io:format("Here~n"),
+	[Label|RevSeq] = lists:reverse(SeqP),
+	Seq = lists:reverse(RevSeq),
+	io:format("Index:~p Seq:~p Label:~p~n",[Index, Seq, Label]),
+	ets:insert(TableName,{Index,Seq,Label}),
+	glass(TableName,Lines,_Index1+1);
+glass(TableName,[],_Index1)->
+	_Index1.
 	
+pima(TableName,[Line|Lines],Index)->
+	%ets:insert(TableName,{Index,Description,PrimSeq,MarkerSeq}),
+	io:format("Line: ~p~n",[Line]),
+	[Label|RevSeq] = lists:reverse(Line),
+	Seq = lists:reverse(RevSeq),
+	io:format("Index:~p Seq:~p Label:~p~n",[Index, Seq, Label]),
+	ets:insert(TableName,{Index,Seq,Label}),
+	pima(TableName,Lines,Index+1);
+pima(TableName,[],Index)->
+	Index.
+	
+sat(TableName,[Line|Lines],Index)->
+	%ets:insert(TableName,{Index,Description,PrimSeq,MarkerSeq}),
+	io:format("Line: ~p~n",[Line]),
+	[Label|RevSeq] = lists:reverse(Line),
+	Seq = lists:reverse(RevSeq),
+	io:format("Index:~p Seq:~p Label:~p~n",[Index, Seq, Label]),
+	ets:insert(TableName,{Index,Seq,Label}),
+	sat(TableName,Lines,Index+1);
+sat(TableName,[],Index)->
+	Index.

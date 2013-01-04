@@ -18,24 +18,33 @@
 %	hypercube:	[{GeoTag1,[{N_Id1,FilterTag1},{N_Id2,FilterTag2}...]}...] GeoTag:[{cartesian,VL}...], FilterTag:{single,Index} | {block,VL}
 %-record(sCT,{name,tot_vl,parameters}).
 %-record(sCF,{name,tot_vl,parameters}).
-get_InitHCF(Dimensions,Plasticity)->
-	[lists:nth(1,get_HCF(Dimensions,Plasticity))].
+get_InitHCF(Dimensions,Plasticity,Type)->
+	[lists:nth(1,get_HCF(Dimensions,Plasticity,Type))].
 	
 get_InitHCT(Dimensions,Plasticity)->%Dimensions*2 +3 due to 1 set of To coordinates and 1 set of From coordinates, plus 3 values: InputVal,OutputVal,CurrentWeight
 	[lists:nth(1,get_HCT(Dimensions,Plasticity))].
 
-get_HCF(Dimensions,Plasticity)->
-	HCF = case Plasticity of
-		iterative ->
-			[#sCF{name=delta_weight,tot_vl=1}]; %[{delta_weight,1}];
-		abcn ->
-			[#sCF{name=abcn,tot_vl=4}]; %[{abcn,4}];
-		none ->
-			[#sCF{name=weight,tot_vl=1}]; %[{weight,1}]
-		modular_none ->
-			[#sCF{name=weight_expression,tot_vl=2}] %[{weight_conexpr,2}]
-	end,
-	HCF.
+get_HCF(Dimensions,Plasticity,SystemType)->
+	case SystemType of
+		hypercube ->
+			HCF = case Plasticity of
+				iterative ->
+					[#sCF{name=delta_weight,tot_vl=1}]; %[{delta_weight,1}];
+				abcn ->
+					[#sCF{name=abcn,tot_vl=4}]; %[{abcn,4}];
+				none ->
+					[#sCF{name=weight,tot_vl=1}]; %[{weight,1}]
+				modular_none ->
+					[#sCF{name=weight_expression,tot_vl=2}] %[{weight_conexpr,2}]
+			end;
+		aart ->
+			HCF = case Plasticity of
+				none ->
+					%[#sCF{name=template_update,tot_vl=1}]
+					%[#sCF{name=distance_lp,tot_vl=2}]
+					[#sCF{name=distance,tot_vl=1}]
+			end
+	end.		
 	
 get_HCT(Dimensions,Plasticity)->
 	io:format("Dimensions:~p, Plasticity:~p~n",[Dimensions,Plasticity]),
@@ -60,6 +69,8 @@ get_HCT(Dimensions,Plasticity)->
 			lists:append(Std,Adt);
 		(Plasticity == none) or (Plasticity == abcn) or (Plasticity == modular_none)->
 			Std=[
+				%#sCT{name=cartesian_distance,tot_vl=1},%{cartesian_distance,1},
+				%#sCT{name=cartesian_CoordDiffs,tot_vl=Dimensions},%{cartesian_CoordDiffs,Dimensions+3}
 				#sCT{name=cartesian,tot_vl=Dimensions*2},%{cartesian,Dimensions*2},
 				#sCT{name=centripital_distances,tot_vl=2},%{centripital_distances,2},
 				#sCT{name=cartesian_distance,tot_vl=1},%{cartesian_distance,1},
@@ -244,19 +255,37 @@ epiwalker(actuators)->
 	Parameters=[
 	],
 	[
-		#actuator{name=epiwalker_Mark,id=primary,format=no_geo,tot_vl=1,parameters=Parameters}
+		#actuator{name=epiwalker_MarkAART,id=primary,format=no_geo,tot_vl=1,parameters=Parameters}
 		%#actuator{name=epiwalker_Move,id=primary,format=no_geo,tot_vl=1,parameters=Parameters}
 	];
 epiwalker(sensors)->
 	ParameterList=[
-	"PrimSeqDec",
-	pcc,
-	"Hydropathy",
-	"SideChainCharge",
-	"SideChainPolarity"
+	pcc
+%	"PrimSeqDec",
+%	"SideChainPolarity",
+%	"SideChainCharge",
+%	"Hydropathy",
+%	"Polarity_Grantham_1974",
+%	"Flexibility_KarplusSchulz_1985",
+%	"Antigenicity_KolaskarTongaonkar_1990",
+%	"Hydrophilicity_Parker_1986"
+%	"Polarity_Ponnuswamy_1980"
 	],
-	SeqLen = 15,
-	[#sensor{name=epiwalker_PrimSeq,format=no_geo,tot_vl=SeqLen,parameters=Parameters} || Parameters<-ParameterList].
+	SeqLen = 51,
+	[#sensor{name=epiwalker_PrimSeqAART,format=no_geo,tot_vl=SeqLen,parameters=Parameters} || Parameters<-ParameterList].
+
+
+aart_classifier(actuators)->
+	Parameters=[
+		glass
+	],
+	[#actuator{name=aart_classifier,id=cell_id,format=no_geo,tot_vl=1,parameters=Parameters}];
+aart_classifier(sensors)->
+	SeqLen=9,
+	Parameters=[
+		glass
+	],
+	[#sensor{name=aart_classifier,id=cell_id,format=no_geo,tot_vl=SeqLen,parameters=Parameters}].
 
 create_format(Type,Precurser)->
 	case Type of

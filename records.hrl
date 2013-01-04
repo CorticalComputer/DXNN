@@ -8,16 +8,18 @@
 -record(af,{name,parameters,neural_constraints}).
 -record(lt,{name,parameters,neural_constraints}).
 -record(schema,{sensors,actuators}).
--record(stat,{morphology,specie_id,avg_subcores,subcores_std,avg_neurons,neurons_std,avg_fitness,fitness_std,max_fitness,min_fitness,avg_diversity,gentest_fitness,evaluations,time_stamp}).
+-record(stat,{morphology,specie_id,avg_subcores,subcores_std,avg_neurons,neurons_std,avg_fitness,fitness_std,max_fitness,min_fitness,avg_diversity,validation_fitness,evaluations,time_stamp}).
 -record(fingerprint,{cf,ct,constraint,history,tot_subcores,tot_substrates,tot_neurons,subcore_pattern,neuro_patterns}).
 -record(trace,{stats=[],tot_evaluations=0,step_size=500,next_step=500}).
 %-record(stats,{morphology,avg_subcores=[],avg_neurons=[],avg_fitness=[],max_fitness=[],min_fitness=[],avg_diversity=[],evaluations=[],tot_evaluations=0,step_size=500,next_step=500}).
--record(population,{id,type,trace=#trace{},specie_ids=[],topspecie_ids,polis_id,evo_strat,seed_agent_ids=[]}).
--record(specie,{id,morphology,constraint,fingerprint,trace=#trace{},cur_stat,avg_fitness,stagnation_factor,dx_ids=[],dead_pool=[],topdx_ids=[],championdx_ids=[],population_id,seed_agent_ids=[]}).
--record(dx,{id,cx_id,n_ids,specie_id,constraint,morphology,generation,fitness,profile,summary,evo_hist,mode,evo_strat,offspring_ids=[]}).
--record(cortex,{id,sensors,actuators,cf,ct,type,plasticity,pattern,cids,su_id,link_form,substrate_link_form,dimensions,densities,generation}). %%%id = {{LayerIndex,NumId},subcore}
+-record(champion,{hof_fingerprint,id,fitness,main_fitness,tot_n,evolvability,robustness,brittleness,generation}).
+-record(population,{id,type,trace=#trace{},specie_ids=[],topspecie_ids,polis_id,evo_strat,seed_agent_ids=[],seed_specie_ids=[],hall_of_fame=[],objectives=[fitness],phylogenetic_tree_depth=inf}). %hof:[{FitnessVector,Id}...]
+-record(specie,{id,morphology,constraint,fingerprint,trace=#trace{},cur_stat,avg_fitness,stagnation_factor,dx_ids=[],dead_pool=[],population_id,seed_agent_ids=[],hof_distinguishers=[tot_n],specie_distinguishers=[tot_n],hall_of_fame=[]}).
+-record(dx,{id,cx_id,n_ids,specie_id,constraint,morphology,heredity_type,neural_type,generation,fitness,main_fitness,profile,summary,evo_hist,mode,evo_strat,offspring_ids=[],parent_ids=[],champion_flag=[false],evolvability=0,brittleness=0,robustness=0, evolutionary_capacitance=0,phenotype=[]}).
+-record(cortex,{id,sensors,actuators,cf,ct,type,plasticity,pattern,cids,su_id,link_form,substrate_link_form,dimensions,densities,categories=[],generation}). %%%id = {{LayerIndex,NumId},subcore}
 -record(subcore,{id,i,o,cf,ct,type,plasticity,pattern,cids,su_id,link_form,dimensions,densities,generation}).
--record(neuron,{id,ivl,i,ovl,o,lt,ro,type,dwp,su_id,generation}). %%%id = {{LayerIndex,NumId},neuron}
+-record(neuron,{id,ivl,i,ovl,o,ro,type,dwp,su_id,generation,parameters=[],preprocessor,signal_integrator,activation_function,postprocessor,plasticity,heredity_type,mlffnn_module=[]}). %%%id = {{LayerIndex,NumId},neuron}
+%-record(hall_of_fame,{id,identifier,fitness}).%id={population_id,agent_id}
 %-record(citizen,{id,dx_id,fitness,fitness_profile,specie_id}).
 -record(summary,{type,tot_neurons,tot_n_ils,tot_n_ols,tot_n_ros,af_distribution,fitness}).
 -record(sensor,{name,id,format,tot_vl,parameters,objects=[],vis=[]}).
@@ -40,23 +42,26 @@
 
 -record(constraint,{
 	morphology = pole2_balancing3, %[pole2_balancing3|flatlander...]
+	heredity_types = [darwinian],
 	actuators = [],
 	sensors = [],
-	architecture = modular, %[modular|monolithic]
 	cx_types, %[hypercube,neural]
 	cx_plasticity, %[iterative,none]
 	cx_linkform = recursive, %[recursive,feedforward,self_recursive]
-	core_types = [hypercube,neural], %[hypercube,neural]
-	core_plasticity = [none], %[iterative,none]
-	core_linkform,
-	sc_types = [neural],
+	sc_types = [hypercube,neural,aart,layered,modular], %[hypercube,neural]
 	sc_neural_plasticity = [none], %[none,modulated]
 	sc_hypercube_plasticity  = [none], %[none,abc,iterative]
 	sc_neural_linkform = recursive, %[recursive,feedforward,self_recursive,jordan_recursive,sj_recursive]
 	sc_hypercube_linkform = [feedforward],
-	neural_types = [standard], %[standard,bst]
+	neural_types = [standard], %[standard]
 	neural_pfs = [none],%[none,modulated]
-	neural_afs = [tanh,gaussian,sin,absolute,sgn,linear,log,sqrt] %[tanh,gaussian,sin,linear,absolute,sgn,log,sqrt]
+	neural_afs = [tanh,gaussian,sin,absolute,sgn,linear,log,sqrt], %[tanh,gaussian,sin,linear,absolute,sgn,log,sqrt]
+	neural_signal_integrators = [dot],
+	neural_preprocessors = [none],
+	neural_postprocessors = [none],
+	specie_distinguishers=[tot_n],%[tot_n,tot_inlinks,tot_outlinks,tot_sensors,tot_actuators,pattern,tot_tanh,tot_sin,tot_cos,tot_gaus,tot_lin...]
+	hof_distinguishers=[tot_n],%[tot_n,tot_inlinks,tot_outlinks,tot_sensors,tot_actuators,pattern,tot_tanh,tot_sin,tot_cos,tot_gaus,tot_lin...]
+	objectives = [main_fitness,tot_n] %[main_fitness,problem_specific_fitness,other_optimization_factors...]
 }).
 
 -record(hall_of_fame,{fitness,agents}).
@@ -111,7 +116,8 @@
 	evaluations_limit = 100000,
 	fitness_goal = inf,
 	benchmarker_pid,
-	survival_type,
+	evolution_type,
+	selection_type,
 	specie_constraint
 }).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% LEGEND %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -166,7 +172,7 @@
 %parent_id: agent_Id of the parent agent (or parents?).
 %======================================CORTEX======================================
 %id: {{0,0},core,UniqueId}
-%type:[neural|hypercube]
+%type:[neural|hypercube|aart]
 %link_form:[feedforward|recursive]
 %Sensory_Pool: [Sensor1...SensorN] Sensor: {sensor,Name,Id,TotVL,Parameters}
 %Actuator_Pool:[Actuator1...ActuatorN] Actuator: {actuator,Name,Id,TotVL,Parameters}
@@ -218,3 +224,48 @@
 %modulation:[none,static,self,external]
 %PI:[Id]
 %I:[{Id1,WPC1,IV2},{Id2,WPC2,IV2}...{IdN,[{W1,DW1,LP2}...{Wk,DWk,LPk}],[IV1...IVk]},{threshold,[{W,DW,LP}],[1]}]
+
+%======================================Neural_Setups======================================
+%Architecture_Type: neural
+%Neural_Types: [standard]
+%PreProcessors: [none]
+%SignalIntegrator: [dot]
+%ActivationFunctions: [tanh]
+%PostProcessors: [none]
+
+%Architecture_Type: neural
+%Neural_Types: [general]
+%PreProcessors: [none]
+%SignalIntegrator: [dot]
+%ActivationFunctions: [tanh,cos,guassian]
+%PostProcessors: [none]
+
+%Architecture_Type: neural
+%Neural_Types: [universal]
+%PreProcessors: [none,normalizer]
+%SignalIntegrator: [dot,product,unit,spheroid,cuboid,elipsoid,gaussianoid]
+%ActivationFunctions: [tanh,cos,guassian]
+%PostProcessors: [none,threshold]
+
+%Architecture_Type: neural
+%Neural_Types: [grossberg]
+%PreProcessors: [none,normalizer]
+%SignalIntegrator: [spheroid,cuboid,elipsoid,gaussianoid]
+%ActivationFunctions: [none]
+%PostProcessors: [threshold]
+
+%Architecture_Type: neural
+%Neural_Types: [layered]
+%PreProcessors: [none,normalizer] if LI < 0.5 else [none]
+%SignalIntegrator: [spheroid,cuboid,elipsoid,gaussianoid] if LI < 0.5 else [dot,product,unit]
+%ActivationFunctions: [none] if LI < 0.5 else [tanh,cos,guassian]
+%PostProcessors: [threshold] if LI < 0.5 else [none,threshold]
+
+%Architecture_Type: hypercube
+%Neural_Types: [standard]
+%PreProcessors: [none]
+%SignalIntegrator: [dot]
+%ActivationFunctions: [tanh]
+%PostProcessors: [none]
+
+%This means that neural_types are independent of architecture_type...  link_form is though, feedforward if hypercube and aart, but neural can be anything.

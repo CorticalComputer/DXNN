@@ -132,6 +132,147 @@ dp_visor(Timer)->
 		config([],_Options)->
 			done.
 
+
+-record(pb_state,{cpos=0,cvel=0,p1_angle=3.6*(2*math:pi()/360),p1_vel=0,p2_angle=0,p2_vel=0,time_step=0,goal_steps=100000,fitness_acc=0}).
+%pb_sim(ExoSelf_PId)->
+%	random:seed(now()),
+%	%io:format("Starting pb_sim:~p~n",[self()]),
+%	pb_sim(ExoSelf_PId,#pb_state{}).
+	
+pole2_balancing1(SensorId,Parameter)->
+	S=case get({pole2_balancing,SensorId}) of
+		undefined->
+			random:seed(now()),
+			InitState = #pb_state{},
+			put({pole2_balancing,SensorId},InitState),
+			InitState;
+		Existing_State ->
+			Existing_State
+	end,%io:format("S:~p~n",[S]),
+%		{From_PId,sense, [Parameter]}->%io:format("Sense request received:~p~n",[From_PId]),
+			AngleLimit = 2*math:pi()*(36/360),
+			Scaled_CPosition = functions:scale(S#pb_state.cpos,2.4,-2.4),
+			Scaled_CVel = functions:scale(S#pb_state.cvel,10,-10),
+			Scaled_PAngle1 = functions:scale(S#pb_state.p1_angle,AngleLimit,-AngleLimit),
+			Scaled_PAngle2 = functions:scale(S#pb_state.p2_angle,AngleLimit,-AngleLimit),
+			SenseSignal=case Parameter of
+				cpos -> [Scaled_CPosition];
+				cvel -> [Scaled_CVel];
+				p1_angle -> [Scaled_PAngle1];
+				p1_vel -> [S#pb_state.p1_vel];
+				p2_angle -> [Scaled_PAngle2];
+				p2_vel -> [S#pb_state.p2_vel];
+				2 -> [Scaled_CPosition,Scaled_PAngle1];
+				3 -> [Scaled_CPosition,Scaled_PAngle1,Scaled_PAngle2];
+				4 -> [Scaled_CPosition,Scaled_CVel,Scaled_PAngle1,S#pb_state.p1_vel];
+				6 -> [Scaled_CPosition,Scaled_CVel,Scaled_PAngle1,Scaled_PAngle2,S#pb_state.p1_vel,S#pb_state.p2_vel]
+			end.
+%			From_PId ! {self(),percept,SenseSignal},
+%			scape:pb_sim(ExoSelf_PId,S);
+pole2_balancing1(ExoSelf,F,ActuatorId,Parameters)->%io:format("Whadup_nigga~n"),
+		Damping_Flag = with_damping,
+		DPB_Flag = 1,
+%		{From_PId,push,[Damping_Flag,DPB_Flag],[F]}->
+		S = get({pole2_balancing,ActuatorId}),
+			
+			AL = 2*math:pi()*(36/360),
+			U_S=sm_DoublePole(F*10,S,2),
+			TimeStep=U_S#pb_state.time_step,
+			CPos=U_S#pb_state.cpos,
+			CVel=U_S#pb_state.cvel,
+			PAngle1=U_S#pb_state.p1_angle,
+			PVel1=U_S#pb_state.p1_vel,
+			%io:format("U_S:~p~n",[U_S]),
+			case (abs(PAngle1) > AL) or (abs(U_S#pb_state.p2_angle)*DPB_Flag > AL) or (abs(CPos) > 2.4) or (TimeStep > U_S#pb_state.goal_steps)of
+				true ->
+					erase({pole2_balancing,ActuatorId}),
+					case (TimeStep > U_S#pb_state.goal_steps) of
+						true ->%Fitness goal reached.
+							Fitness = case Damping_Flag of
+								without_damping ->
+									1;
+								with_damping ->
+									Fitness1 = TimeStep/1000,
+									Fitness2 = case TimeStep < 100 of
+										true ->
+											0;
+										false ->
+											0.75/(abs(CPos) +abs(CVel) + abs(PAngle1) + abs(PVel1))
+									end,
+									Fitness1*0.1 + Fitness2*0.9
+							end,
+%							From_PId ! {self(),Fitness,goal_reached},
+%							scape:pb_sim(ExoSelf_PId,#pb_state{});
+%							put({pole2_balancing,ActuatorId},U_S),
+							put(goal,reached),
+							{1,0};
+						false ->
+%							From_PId ! {self(),0,1},
+%							scape:pb_sim(ExoSelf_PId,#pb_state{})
+%							put({pole2_balancing,ActuatorId},U_S),
+							{1,0}
+					end;
+				false ->
+					Fitness = case Damping_Flag of
+						without_damping ->
+							1;
+						with_damping ->
+							Fitness1 = TimeStep/1000,
+							Fitness2 = case TimeStep < 100 of
+								true ->
+									0;
+								false ->
+									0.75/(abs(CPos) +abs(CVel) + abs(PAngle1) + abs(PVel1))
+							end,
+							Fitness1*0.1 + Fitness2*0.9
+					end,		
+					put({pole2_balancing,ActuatorId},U_S#pb_state{fitness_acc=U_S#pb_state.fitness_acc+Fitness}),
+					{0,Fitness}
+			end.
+	
+	sm_DoublePole(_F,S,0)->
+		S#pb_state{time_step=S#pb_state.time_step+1};
+	sm_DoublePole(F,S,SimStepIndex)->
+		CPos=S#pb_state.cpos,
+		CVel=S#pb_state.cvel,
+		PAngle1=S#pb_state.p1_angle,
+		PAngle2=S#pb_state.p2_angle,
+		PVel1=S#pb_state.p1_vel,
+		PVel2=S#pb_state.p2_vel,
+		X = CPos, %EdgePositions = [-2.4,2.4],
+		PHalfLength1 = 0.5, %Half-length of pole 1
+		PHalfLength2 = 0.05, %Half-length of pole 2
+		M = 1, %CartMass
+		PMass1 = 0.1, %Pole1 mass
+		PMass2 = 0.01, %Pole2 mass
+		MUc = 0.0005, %Cart-Track Friction Coefficient
+		MUp = 0.000002, %Pole-Hinge Friction Coefficient
+		G = -9.81, %Gravity
+		Delta = 0.01, %Timestep
+		EM1 = PMass1*(1-(3/4)*math:pow(math:cos(PAngle1),2)),
+		EM2 = PMass2*(1-(3/4)*math:pow(math:cos(PAngle2),2)),
+		EF1 = PMass1*PHalfLength1*math:pow(PVel1,2)*math:sin(PAngle1)+(3/4)*PMass1*math:cos(PAngle1)*(((MUp*PVel1)/(PMass1*PHalfLength1))+G*math:sin(PAngle1)),
+		EF2 = PMass2*PHalfLength2*math:pow(PVel2,2)*math:sin(PAngle2)+(3/4)*PMass2*math:cos(PAngle2)*(((MUp*PVel2)/(PMass1*PHalfLength2))+G*math:sin(PAngle2)),
+		NextCAccel = (F - MUc*functions:sgn(CVel)+EF1+EF2)/(M+EM1+EM2),
+		NextPAccel1 = -(3/(4*PHalfLength1))*((NextCAccel*math:cos(PAngle1))+(G*math:sin(PAngle1))+((MUp*PVel1)/(PMass1*PHalfLength1))),
+		NextPAccel2 = -(3/(4*PHalfLength2))*((NextCAccel*math:cos(PAngle2))+(G*math:sin(PAngle2))+((MUp*PVel2)/(PMass2*PHalfLength2))),
+	
+		NextCVel = CVel+(Delta*NextCAccel),
+		NextCPos = CPos+(Delta*CVel),
+		NextPVel1 = PVel1+(Delta*NextPAccel1),
+		NextPAngle1 = PAngle1+(Delta*NextPVel1),
+		NextPVel2 = PVel2+(Delta*NextPAccel2),
+		NextPAngle2 = PAngle2+(Delta*NextPVel2),
+		U_S=S#pb_state{
+			cpos=NextCPos,
+			cvel=NextCVel,
+			p1_angle=NextPAngle1,
+			p1_vel=NextPVel1,
+			p2_angle=NextPAngle2,
+			p2_vel=NextPVel2
+		},
+		sm_DoublePole(0,U_S,SimStepIndex-1).
+
 pole2_balancing(SensorId,Parameter)->
 	{CPosition,CVel,PAngle1,PVel1,PAngle2,PVel2,TimeStep,GoalTimeSteps,MaxTimeSteps,FitnessAcc}=case get({pole2_balancing,SensorId}) of
 		undefined ->

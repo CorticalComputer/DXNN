@@ -15,7 +15,7 @@
 -define(LIVES,1).
 -define(MIN_PIMPROVEMENT,0.0000).
 -define(SAT_LIMIT,math:pi()).
--record(state,{type,plasticity,morphology,specie_id,sensors,actuators,cf,ct,complexity,op_mode,max_attempts,dimensions,densities}).
+-record(state,{type,plasticity,morphology,specie_id,sensors,actuators,cf,ct,complexity,op_mode,max_attempts,dimensions,densities,behavior=[]}).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 gen(ExoSelf,Node)->
 	PId = spawn(Node,cortex,prep,[ExoSelf]),
@@ -27,7 +27,7 @@ prep(ExoSelf)->
 	receive
 		{ExoSelf,init,InitState}->
 %			io:format("Cortex:Prep::~p~n",[InitState]),
-			{ExoSelf,Id,Sensors,Actuators,CF,CT,Max_Attempts,Smoothness,OpMode,Type,Plasticity,Morphology,Specie_Id,TotNeurons,Dimensions,Densities,Link_Form}=InitState,
+			{ExoSelf,Id,Sensors,Actuators,CF,CT,Max_Attempts,Smoothness,OpMode,Type,Plasticity,Morphology,Specie_Id,TotNeurons,Dimensions,Densities,Categories,Link_Form}=InitState,
 			put(link_form,Link_Form),
 			State = #state{
 				type=Type,
@@ -61,7 +61,6 @@ prep(ExoSelf)->
 					committee ! {self(),my_pid,ExoSelf},
 					cm;
 				_ ->
-					put(fitness,{-1000000,1}),
 					put(opmode,OpMode),
 					OpMode
 			end,
@@ -74,7 +73,9 @@ prep(ExoSelf)->
 					%[sense(ExoSelf,CT) || _<- lists:seq(1,Smoothness)],
 					self() ! {self(),tik},
 					Substrate = init,
-					cortex:cortex(ExoSelf,self(),Id,State,Sensors,Actuators,CT,CF,Densities,{Substrate,reset},OpMode)
+					cortex:cortex(ExoSelf,self(),Id,State,Sensors,Actuators,CT,CF,Densities,{Substrate,reset},OpMode);
+				aart ->
+					aart:prep(ExoSelf,self(),Id,State,Sensors,Actuators,CT,CF,OpMode,Categories)
 			end
 	end.
 	
@@ -82,10 +83,10 @@ prep(ExoSelf)->
 cortex(ExoSelf,Id,State,CT,[{Actuator,[CF_PId|N_Ids]}|CF],CFAcc,OAcc,OpMode)->
 	receive
 		{CF_PId,forward,Output}->
-%			io:format("Cortex:~p CxCF:~p~n",[Id,{CF_PId,Output}]),
+			%io:format("Cortex:~p CxCF:~p~n",[{Id,self()},{CF_PId,Output}]),
 			cortex:cortex(ExoSelf,Id,State,CT,[{Actuator,N_Ids}|CF],[Output|CFAcc],OAcc,OpMode);
 		{ExoSelf,reset_IProfile} ->
-			io:format("Cortex is reseting IProfile:~n"),
+			%io:format("Cortex is reseting IProfile:~n"),
 			ExoSelf ! {self(),ready},
 			cortex:cortex(ExoSelf,Id,State,CT,[{Actuator,[CF_PId|N_Ids]}|CF],CFAcc,OAcc,OpMode);
 		{ExoSelf,revert_IProfile} ->
@@ -94,8 +95,16 @@ cortex(ExoSelf,Id,State,CT,[{Actuator,[CF_PId|N_Ids]}|CF],CFAcc,OAcc,OpMode)->
 			cortex:cortex(ExoSelf,Id,State,CT,[{Actuator,[CF_PId|N_Ids]}|CF],CFAcc,OAcc,OpMode);
 		{fitness,Fitness} ->
 			cortex:cortex(ExoSelf,Id,State,CT,[{Actuator,[CF_PId|N_Ids]}|CF],CFAcc,OAcc,OpMode);
+		{ExoSelf,get_backup}->
+			%io:format("Received request~n"),
+			ExoSelf ! {self(),backup,{undefined,undefined,[]}},
+			%io:format("Just sent msg:~p~n",[{self(),backup,{undefined,undefined,[]}}]),
+			cortex:cortex(ExoSelf,Id,State,CT,[{Actuator,[CF_PId|N_Ids]}|CF],CFAcc,OAcc,OpMode);
 		{ExoSelf,terminate}->
-			void
+			void;
+		Msg ->
+			%io:format("Unkown message:~p~n",[Msg]),
+			cortex:cortex(ExoSelf,Id,State,CT,[{Actuator,[CF_PId|N_Ids]}|CF],CFAcc,OAcc,OpMode)
 		after 20000 ->
 			io:format("********ERROR: Neural_Cortex Crashed:~p~n",[{ExoSelf,Id,State,CT,[{Actuator,[CF_PId|N_Ids]}|CF],CFAcc,OAcc,OpMode}])
 	end;
@@ -110,7 +119,7 @@ cortex(ExoSelf,Id,State,CT,[{Actuator,[]}|CF],CFAcc,OAcc,OpMode)->
 cortex(ExoSelf,Id,State,CT,[],[],OAcc,OpMode)->
 %	io:format("Cortex:~p~n",[CFAcc]),
 	%OutputP = lists:reverse(CFAcc),
-	case cortex:OpMode(ExoSelf,State#state.specie_id,OAcc,0,0) of
+	case cortex:OpMode(ExoSelf,State#state.specie_id,OAcc,0,0,undefined) of
 		end_training ->
 			case State#state.morphology of
 				forex_trader ->
@@ -134,37 +143,28 @@ cortex(ExoSelf,Self,Id,State,I,O,CT,CF,Densities,{Substrate,SMode},OpMode)->
 %			io:format("id:~p OAcc:~p~n",[self(),OAcc]),
 			Formated_OAcc = format_OAcc(OAcc,O,[]), %not a list of lists, and it should be.
 %			io:format("id:~p Formated_OAcc:~p OAcc:~p~n",[self(),Formated_OAcc,OAcc]),
-			case cortex:OpMode(ExoSelf,State#state.specie_id,Formated_OAcc,0,0) of
+			case cortex:OpMode(ExoSelf,State#state.specie_id,Formated_OAcc,0,0,undefined) of
 				end_training ->
 					%leave_scape(),
 					cortex:cortex(ExoSelf,Self,Id,State,I,O,CT,CF,Densities,{U_Substrate,U_SMode},OpMode);
 				reset_IProfile ->
-					put(substrate,Substrate),
+					put(substrate,U_Substrate),
 					Self ! {Self,tik},
 					cortex:cortex(ExoSelf,Self,Id,State,I,O,CT,CF,Densities,{U_Substrate,reset},OpMode);
 				revert_IProfile ->
+					Old_Substrate = get(substrate),
 					Self ! {Self,tik},
-					cortex:cortex(ExoSelf,Self,Id,State,I,O,CT,CF,Densities,{U_Substrate,U_SMode},OpMode);
+					cortex:cortex(ExoSelf,Self,Id,State,I,O,CT,CF,Densities,{Old_Substrate,reset},OpMode);
 				_ ->
 %					io:format("Cortex:~p CxCT:~p~n",[Id,CT]),
 					Self ! {Self,tik},
 					cortex:cortex(ExoSelf,Self,Id,State,I,O,CT,CF,Densities,{U_Substrate,U_SMode},OpMode)
-			end; 
-		{ExoSelf,reset_IProfile} ->
-%			io:format("reseting:~n"),
-			put(substrate,Substrate),
-			ExoSelf ! {self(),ready},
-			cortex:cortex(ExoSelf,Self,Id,State,I,O,CT,CF,Densities,{Substrate,reset},OpMode);
-		{ExoSelf,revert_IProfile} ->
-%			io:format("reverting:~n"),
-			Old_Substrate = get(substrate),
-			ExoSelf ! {self(),ready},
-			cortex:cortex(ExoSelf,Self,Id,State,I,O,CT,CF,Densities,{Old_Substrate,reset},OpMode);
+			end;
 		{ExoSelf,terminate}->
 %			io:format("Resulting substrate:~p~n",[Substrate]),
 			void;
 		Msg ->
-			io:format("Unknown Msg:~p~n",[Msg]),
+			io:format("*** UNKNOWN MSG ***:~p~n",[Msg]),
 			cortex:cortex(ExoSelf,Self,Id,State,I,O,CT,CF,Densities,{Substrate,SMode},OpMode)
 		after 20000 ->
 			io:format("********ERROR: Hypercube_Cortex Crashed:~p~n",[{ExoSelf,Self,Id,State,I,O,CT,CF,Densities,{Substrate,SMode},OpMode}])
@@ -877,29 +877,36 @@ sense(_ExoSelf,[])->
 		done.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% OPMODE %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-gt(ExoSelf,Specie_Id,[{A,Output}|OAcc],FitnessAcc,ProgressAcc)->
+gt(ExoSelf,Specie_Id,[{A,Output}|OAcc],FitnessAcc,ProgressAcc,GlobalParameters)->
 	%{actuator,Name,ActuatorId,Format,VL,Parameters} = Actuator,
 	Name = A#actuator.name,
 	ActuatorId = A#actuator.id,
 	Parameters = A#actuator.parameters,
 	{Progress,Fitness} = actuators:Name(ExoSelf,Output,ActuatorId,Parameters),
+	%io:format("In GT~p~n"),
 	case Fitness of
 		goal_reached-> put(goal,reached);
 		_ -> done
 	end,
-	gt(ExoSelf,Specie_Id,OAcc,FitnessAcc+Fitness,ProgressAcc+Progress);
-gt(ExoSelf,Specie_Id,[],AffectFitness,AffectProgress)->
+	gt(ExoSelf,Specie_Id,OAcc,vector_add(Fitness,FitnessAcc,[]),ProgressAcc+Progress,GlobalParameters);
+gt(ExoSelf,Specie_Id,[],FitnessAcc,AffectProgress,GlobalParameters)->
+	
 	FitnessType = void,
-	FitnessAcc = case get(fitness_acc) of
+	U_FitnessAcc = case get(fitness_acc) of
 		undefined ->
-			0;
+			FitnessAcc;
 		FA ->
-			FA
+			vector_add(FitnessAcc,FA,[])
 	end,
-	U_FitnessAcc = FitnessAcc+AffectFitness,
+	%U_FitnessAcc = FitnessAcc+AffectFitness,
 	put(fitness_acc,U_FitnessAcc),
 	MaxMissedAttempts = get(max_attempts),
-	{HighestFitness,AttemptIndex} = get(fitness),
+	{HighestFitness,AttemptIndex} = case get(fitness) of
+		undefined ->
+			{[Val-1||Val <- U_FitnessAcc],1};
+		{HiFi,AtIn}->
+			{HiFi,AtIn}
+	end,
 	Goal = get(goal),
 	%io:format("Fitness:~p HighestFitness:~p,AtemptIndex:~p~n",[U_FitnessAcc,HighestFitness,AttemptIndex]),
 	case AffectProgress >= 1 of
@@ -907,7 +914,7 @@ gt(ExoSelf,Specie_Id,[],AffectFitness,AffectProgress)->
 			put(fitness,{HighestFitness,AttemptIndex});
 		true ->
 			done = gen_server:call(ExoSelf,memory_reset),
-			put(fitness_acc,0),
+			erase(fitness_acc),
 			gen_server:cast(monitor,{self(),evaluations,Specie_Id,1}),
 			FitnessList= get(fitness_list),
 			U_FitnessList = [U_FitnessAcc|FitnessList],
@@ -916,12 +923,13 @@ gt(ExoSelf,Specie_Id,[],AffectFitness,AffectProgress)->
 				true->
 					put(fitness_list,[]),
 					put(instance,1),
-					Avg_Fitness = functions:avg(U_FitnessList),
+					Avg_Fitness = vector_avg(U_FitnessList,length(U_FitnessList)),
 					%io:format("U_FitnessList:~p Avg_Fitness:~p~n",[U_FitnessList,Avg_Fitness]),
-					case Avg_Fitness > (HighestFitness + abs(HighestFitness*?MIN_PIMPROVEMENT)) of
+					case vec1_dominates_vec2(Avg_Fitness,HighestFitness,?MIN_PIMPROVEMENT) of%vec1_dominates_vec2(U_FitnessAcc,HighestFitness,?MIN_PIMPROVEMENT)
 						true ->
 							done = gen_server:call(ExoSelf,{weight_save}),
-							done = gen_server:call(ExoSelf,{backup_request}),
+							done = gen_server:call(ExoSelf,{backup_request,GlobalParameters}),%%Also make this the point where cortex backs up its parameters.
+							%io:format("NewFitness:~p~n",[Avg_Fitness]),
 							case Goal of
 								undefined ->
 									done;
@@ -931,15 +939,15 @@ gt(ExoSelf,Specie_Id,[],AffectFitness,AffectProgress)->
 							end,
 							put(fitness,{Avg_Fitness,1}),
 							reenter_scape(),
-							done = gen_server:call(ExoSelf,{weight_mutate}),
-							reset_IProfile;
+							done = gen_server:call(ExoSelf,{weight_mutate}),%%Also make this the point where cortex mutates its parameters.
+							reset_IProfile;%In neuron and hypercube, this leads to a nop, and a simple reset tag to have the substrate reset. Whereas in aart can signal a mutation of the categories/classes.
 						false ->
 							done = gen_server:call(ExoSelf,{weight_revert}),
 							%io:format("Pid:~p HighestFitness:~p Fitness:~p~n",[self(),HighestFitness,U_FitnessAcc]),
 							case AttemptIndex >= MaxMissedAttempts of
 								true ->
 									gen_server:cast(ExoSelf,{self(),fitness,{FitnessType,HighestFitness,Goal}}),
-									io:format("Pid:~p HighestFitness:~p AttemptIndex:~p~n",[self(),HighestFitness,AttemptIndex]),
+									%io:format("Pid:~p HighestFitness:~p AttemptIndex:~p~n",[self(),HighestFitness,AttemptIndex]),
 									case Goal of
 										undefined ->
 											done;
@@ -952,22 +960,22 @@ gt(ExoSelf,Specie_Id,[],AffectFitness,AffectProgress)->
 									%io:format("Pid:~p AttemptIndex:~p MaxMissedAttempts~p~n",[self(),AttemptIndex,MaxMissedAttempts]),
 									put(fitness,{HighestFitness,AttemptIndex+1}),
 									reenter_scape(),
-									done = gen_server:call(ExoSelf,{weight_mutate}),
-									reset_IProfile
+									done = gen_server:call(ExoSelf,{weight_mutate}),%%Also make this the point where cortex mutates its parameters.
+									revert_IProfile %In neuron and hypercube, this leads to a nop, and a simple reset tag to have the substrate reset. Whereas in aart can signal a revertion and then mutation of categories/classes.
 							end
 					end;
 				false->
-%					io:format("Instance:~p Cortex:~p~n",[Instance,self()]),
+					io:format("Instance:~p Cortex:~p~n",[Instance,self()]),
 					put(fitness_list,U_FitnessList),
 					put(instance,Instance+1),
 					put(fitness,{HighestFitness,AttemptIndex+1}), %TODO We need to reset the memory, because it just lets it back in, hence the diff 
-					reset_Memory,
+					reset_Memory,%TODO
 					reenter_scape(),
 					reset_IProfile	%We saw last time, where one of the values is different (the first?)
 			end
 	end.
 
-benchmark(ExoSelf,Specie_Id,[{A,Output}|OAcc],FitnessAcc,ProgressAcc)->
+validation(ExoSelf,Specie_Id,[{A,Output}|OAcc],FitnessAcc,ProgressAcc,_GlobalParameters)->
 	Name = A#actuator.name,
 	ActuatorId = A#actuator.id,
 	Parameters = A#actuator.parameters,
@@ -976,28 +984,29 @@ benchmark(ExoSelf,Specie_Id,[{A,Output}|OAcc],FitnessAcc,ProgressAcc)->
 		goal_reached-> put(goal,reached);
 		_ -> done
 	end,
-	benchmark(ExoSelf,Specie_Id,OAcc,FitnessAcc+Fitness,ProgressAcc+Progress);
-benchmark(ExoSelf,Specie_Id,[],AffectFitness,AffectProgress)->
+	validation(ExoSelf,Specie_Id,OAcc,vector_add(Fitness,FitnessAcc,[]),ProgressAcc+Progress,_GlobalParameters);
+validation(ExoSelf,Specie_Id,[],FitnessAcc,AffectProgress,_GlobalParameters)->
 	FitnessType = void,
-	FitnessAcc = case get(fitness_acc) of
+	U_FitnessAcc = case get(fitness_acc) of
 		undefined ->
-			0;
+			FitnessAcc;
 		FA ->
-			FA
+			vector_add(FitnessAcc,FA,[])
 	end,
-	U_FitnessAcc = FitnessAcc+AffectFitness,
+	%U_FitnessAcc = vector_add(Fitness,FitnessAcc,[]),
 	put(fitness_acc,U_FitnessAcc),
 	case AffectProgress >= 1 of
 		false ->
 			void;
 		true ->
+			io:format("cortex:validation(...) result:~p~n",[{self(),validation_fitness,{FitnessType,U_FitnessAcc,get(goal)}}]),
 			done = gen_server:call(ExoSelf,memory_reset),
-			gen_server:cast(ExoSelf,{self(),benchmark_fitness,{FitnessType,U_FitnessAcc,get(goal)}}),
+			gen_server:cast(ExoSelf,{self(),validation_fitness,{FitnessType,U_FitnessAcc,get(goal)}}),
 			io:format("Pid:~p Fitness:~p~n",[self(),U_FitnessAcc]),
 			end_training
 	end.
 	
-test(ExoSelf,Specie_Id,[{A,Output}|OAcc],FitnessAcc,ProgressAcc)->
+test(ExoSelf,Specie_Id,[{A,Output}|OAcc],FitnessAcc,ProgressAcc,_GlobalParameters)->
 	Name = A#actuator.name,
 	ActuatorId = A#actuator.id,
 	Parameters = A#actuator.parameters,
@@ -1006,8 +1015,8 @@ test(ExoSelf,Specie_Id,[{A,Output}|OAcc],FitnessAcc,ProgressAcc)->
 		goal_reached-> put(goal,reached);
 		_ -> done
 	end,
-	test(ExoSelf,Specie_Id,OAcc,vector_add(Fitness,FitnessAcc,[]),ProgressAcc+Progress);
-test(ExoSelf,Specie_Id,[],FitnessAcc,AffectProgress)->
+	test(ExoSelf,Specie_Id,OAcc,vector_add(Fitness,FitnessAcc,[]),ProgressAcc+Progress,_GlobalParameters);
+test(ExoSelf,Specie_Id,[],FitnessAcc,AffectProgress,_GlobalParameters)->
 	FitnessType = void,
 	U_FitnessAcc = case get(fitness_acc) of
 		undefined ->
@@ -1044,16 +1053,16 @@ championship(ExoSelf,Specie_Id,[{A,Output}|OAcc],FitnessAcc,ProgressAcc)->
 		goal_reached-> put(goal,reached);
 		_ -> done
 	end,
-	championship(ExoSelf,Specie_Id,OAcc,FitnessAcc+Fitness,ProgressAcc+Progress);
-championship(ExoSelf,Specie_Id,[],AffectFitness,AffectProgress)->
+	championship(ExoSelf,Specie_Id,OAcc,vector_add(Fitness,FitnessAcc,[]),ProgressAcc+Progress);
+championship(ExoSelf,Specie_Id,[],FitnessAcc,AffectProgress)->
 	FitnessType = void,
-	FitnessAcc = case get(fitness_acc) of
+	U_FitnessAcc = case get(fitness_acc) of
 		undefined ->
-			0;
+			FitnessAcc;
 		FA ->
-			FA
+			vector_add(FitnessAcc,FA,[])
 	end,
-	U_FitnessAcc = FitnessAcc+AffectFitness,
+	%U_FitnessAcc = FitnessAcc+AffectFitness,
 	put(fitness_acc,U_FitnessAcc),
 	MaxMissedAttempts = get(max_attempts),
 	{HighestFitness,AttemptIndex} = get(fitness),
@@ -1064,8 +1073,8 @@ championship(ExoSelf,Specie_Id,[],AffectFitness,AffectProgress)->
 			put(fitness,{HighestFitness,AttemptIndex});
 		true ->
 			done = gen_server:call(ExoSelf,memory_reset),
-			put(fitness_acc,0),
-			case U_FitnessAcc > (HighestFitness + abs(HighestFitness*?MIN_PIMPROVEMENT)) of
+			erase(fitness_acc),
+			case vec1_dominates_vec2(U_FitnessAcc,HighestFitness,?MIN_PIMPROVEMENT) of
 				true ->
 					put(fitness,{U_FitnessAcc,1}),
 					reenter_scape();
@@ -1082,3 +1091,33 @@ championship(ExoSelf,Specie_Id,[],AffectFitness,AffectProgress)->
 					end
 			end
 	end.
+	
+	vec1_dominates_vec2(A,B,MIP)->
+		%io:format("A:~p~nB:~p~nMIP:~p~n",[A,B,MIP]),
+		VecDif=vec1_dominates_vec2(A,B,MIP,[]),
+		%io:format("VecDif:~p~n",[VecDif]),
+		TotElems = length(VecDif),
+		DifElems=length([Val || Val<-VecDif, Val > 0]),
+		case DifElems of
+			TotElems->%Complete Superiority
+				true;
+			0 ->%Complete Inferiority
+				false;
+			_ ->%Variation, pareto front TODO
+				false
+		end.
+	vec1_dominates_vec2([Val1|Vec1],[Val2|Vec2],MIP,Acc)->
+		vec1_dominates_vec2(Vec1,Vec2,MIP,[Val1-(Val2+Val2*MIP)|Acc]);
+	vec1_dominates_vec2([],[],_MIP,Acc)->
+		Acc.
+		
+	vector_avg(Vec,Length)->vector_avg(Vec,[],0,[],Length).
+	vector_avg([Vec|Vectors],RemAcc,ValAcc,VecAcc,Length)->
+		case Vec of
+			[]->
+				lists:reverse(VecAcc);
+			[Val|Rem]->
+				vector_avg(Vectors,[Rem|RemAcc],Val+ValAcc,VecAcc,Length)
+		end;
+	vector_avg([],RemAcc,ValAcc,VecAcc,Length)->
+		vector_avg(RemAcc,[],0,[ValAcc/Length|VecAcc],Length).

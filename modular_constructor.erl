@@ -18,12 +18,16 @@ construct_DX(Specie_Id,DX_Id,SpecCon)->
 	{A,B,C} = now(),
 	random:seed(A,B,C),
 	Generation = 0,
-	Cx_Id = construct_CortexTechnome(DX_Id,Generation,SpecCon),
+	Neural_Type = lists:nth(random:uniform(length(SpecCon#constraint.neural_types)),SpecCon#constraint.neural_types),
+	Heredity_Type=lists:nth(random:uniform(length(SpecCon#constraint.heredity_types)),SpecCon#constraint.heredity_types),
+	Cx_Id = construct_CortexTechnome(DX_Id,Generation,SpecCon,Neural_Type,Heredity_Type),
 	DX = #dx{
 		id = DX_Id,
 		cx_id = Cx_Id,
 		specie_id = Specie_Id,
 		morphology = SpecCon#constraint.morphology,
+		heredity_type = Heredity_Type,
+		neural_type = Neural_Type,
 		generation = Generation,
 		evo_hist = [],
 		evo_strat = agent_evo_strat:init()
@@ -34,7 +38,7 @@ construct_DX(Specie_Id,DX_Id,SpecCon)->
 	done.
 
 %-record(core,{id,ivl,i,ovl,o,cfvl,cf,ctvl,ct,ro,type,pattern,cids,su_id,link_form,generation}). %%%id = {{LayerIndex,NumId},subcore}
-construct_CortexTechnome(DX_Id,Generation,SpecCon)->
+construct_CortexTechnome(DX_Id,Generation,SpecCon,Neural_Type,Heredity_Type)->
 	Cx_Id = {{origin,technome_constructor:generate_UniqueId()},cortex},
 	SC_Types = SpecCon#constraint.sc_types,
 	Morphology = SpecCon#constraint.morphology,
@@ -56,7 +60,7 @@ construct_CortexTechnome(DX_Id,Generation,SpecCon)->
 			Densities = [Depth,1|lists:duplicate(Dimensions-2,Density)], %[X,Y,Z,T...]
 			
 			SubstrateCT = morphology:get_InitHCT(Dimensions,Plasticity),
-			SubstrateCF = morphology:get_InitHCF(Dimensions,Plasticity),
+			SubstrateCF = morphology:get_InitHCF(Dimensions,Plasticity,Type),
 			io:format("SubstrateCT:~p~n SubstrateCF:~p Densities:~p~n",[SubstrateCT,SubstrateCF,Densities]),
 			CT_VL = lists:sum([SCT#sCT.tot_vl || SCT <- SubstrateCT]),
 			CF_VL = lists:sum([SCF#sCF.tot_vl || SCF <- SubstrateCF]),
@@ -74,23 +78,67 @@ construct_CortexTechnome(DX_Id,Generation,SpecCon)->
 					FLIds = [N_Id],
 					ClusteredLLIds = [[N_Id]],
 					LLIds = lists:flatten(ClusteredLLIds),
-					construct_FirstNeuroLayerTechnome(Cx_Id,Generation,[Cx_Id],FL_IVLs,[Cx_Id],FLIds,SpecCon);
+					construct_FirstNeuroLayerTechnome(Cx_Id,Generation,[Cx_Id],FL_IVLs,[Cx_Id],FLIds,SpecCon,Neural_Type,Heredity_Type);
 				false ->
 					FLIds = [{{-0.33,technome_constructor:generate_UniqueId()},neuron} || _ <- CT],%
 					ClusteredLLIds=[[{{0.33,technome_constructor:generate_UniqueId()},neuron}|| _ <-lists:seq(1,SCF#sCF.tot_vl)] || SCF <- SubstrateCF],
 					LLIds = lists:flatten(ClusteredLLIds),
-					construct_FirstNeuroLayerTechnome(Cx_Id,Generation,LLIds,FL_IVLs,lists:duplicate(length(FLIds),Cx_Id),FLIds,SpecCon),
-					construct_LastNeuroLayerTechnome(Cx_Id,Generation,FLIds,LLIds,SpecCon)%
+					construct_FirstNeuroLayerTechnome(Cx_Id,Generation,LLIds,FL_IVLs,lists:duplicate(length(FLIds),Cx_Id),FLIds,SpecCon,Neural_Type,Heredity_Type),
+					construct_LastNeuroLayerTechnome(Cx_Id,Generation,FLIds,LLIds,SpecCon,Neural_Type,Heredity_Type)%
 			end,
 			%io:format("C_CF:~p~nC_CT:~p~n",[{Actuators,ClusteredLLIds},{Sensors,FLIds,CT_Tags}]),
 			C_CF = [{SCF,SCF_Ids} || {SCF,SCF_Ids}<-lists:zip(SubstrateCF,ClusteredLLIds)],
 			C_CT = [{SCT,[{FLId,CT_Tag}]} || {SCT,FLId,CT_Tag}<-lists:zip3(SubstrateCT,FLIds,CT_Tags)];
+		aart->
+%			I_VL = lists:sum([Sensor#sensor.tot_vl || Sensor <- Sensors]),
+%			O_VL = lists:sum([Actuator#actuator.tot_vl || Actuator <- Actuators]),
+			Substrate_Link_Form = lists:nth(random:uniform(length(SpecCon#constraint.sc_hypercube_linkform)),SpecCon#constraint.sc_hypercube_linkform),%TODO
+			Neural_Link_Form = SpecCon#constraint.sc_neural_linkform,
+%			SC_Plasticity = none,%TODO
+			SC_Plasticity = SpecCon#constraint.sc_neural_plasticity,
+			[Plasticity]=SC_Plasticity,
+			Sensors = morphology:get_InitSensors(Morphology),
+			Actuators = morphology:get_InitActuators(Morphology),
+			[S]=Sensors,
+			Dimensions = S#sensor.tot_vl,%TODO
+			Densities = void,
+			ART_Plasticity = none,%TODO
+			SubstrateCT = morphology:get_InitHCT(Dimensions,ART_Plasticity),
+			SubstrateCF = morphology:get_InitHCF(Dimensions,ART_Plasticity,Type),
+%			io:format("SubstrateCT:~p~n SubstrateCF:~p Densities:~p~n",[SubstrateCT,SubstrateCF,Densities]),
+			CT_VL = lists:sum([SCT#sCT.tot_vl || SCT <- SubstrateCT]),
+			CF_VL = lists:sum([SCF#sCF.tot_vl || SCF <- SubstrateCF]),
+			
+			CT_Type = lists:nth(random:uniform(length(?CT_TYPES)),?CT_TYPES),
+			CT = case CT_Type of
+				block ->
+					[{SCT#sCT.tot_vl,{block,SCT#sCT.tot_vl}} || SCT <-SubstrateCT]
+			end,
+			{FL_IVLs,CT_Tags} = lists:unzip(CT),
+			
+			case (length(SubstrateCT) == 1) and (CF_VL == 1) of
+				true ->
+					N_Id = {{0,technome_constructor:generate_UniqueId()},neuron},
+					FLIds = [N_Id],
+					ClusteredLLIds = [[N_Id]],
+					LLIds = lists:flatten(ClusteredLLIds),
+					construct_FirstNeuroLayerTechnome(Cx_Id,Generation,[Cx_Id],FL_IVLs,[Cx_Id],FLIds,SpecCon,Neural_Type,Heredity_Type);
+				false ->
+					FLIds = [{{-0.33,technome_constructor:generate_UniqueId()},neuron} || _ <- CT],%
+					ClusteredLLIds=[[{{0.33,technome_constructor:generate_UniqueId()},neuron}|| _ <-lists:seq(1,SCF#sCF.tot_vl)] || SCF <- SubstrateCF],
+					LLIds = lists:flatten(ClusteredLLIds),
+					construct_FirstNeuroLayerTechnome(Cx_Id,Generation,LLIds,FL_IVLs,lists:duplicate(length(FLIds),Cx_Id),FLIds,SpecCon,Neural_Type,Heredity_Type),
+					construct_LastNeuroLayerTechnome(Cx_Id,Generation,FLIds,LLIds,SpecCon,Neural_Type,Heredity_Type)%
+			end,
+			%io:format("C_CF:~p~nC_CT:~p~n",[{Actuators,ClusteredLLIds},{Sensors,FLIds,CT_Tags}]),
+			C_CF = [{SCF,SCF_Ids} || {SCF,SCF_Ids}<-lists:zip(SubstrateCF,ClusteredLLIds)],
+			C_CT = [{SCT,[{FLId,CT_Tag}]} || {SCT,FLId,CT_Tag}<-lists:zip3(SubstrateCT,FLIds,CT_Tags)];			
 		neural ->
 			Substrate_Link_Form = void,
 			Neural_Link_Form = SpecCon#constraint.sc_neural_linkform,
 			SC_Plasticity = SpecCon#constraint.sc_neural_plasticity,
 			[Plasticity]=SC_Plasticity,
-			Sensors = morphology:get_InitSensors(Morphology),
+			Sensors = morphology:get_Sensors(Morphology),
 			Actuators = morphology:get_InitActuators(Morphology),
 			Dimensions = void,
 			Densities = void,
@@ -114,13 +162,13 @@ construct_CortexTechnome(DX_Id,Generation,SpecCon)->
 					FLIds = [N_Id],
 					ClusteredLLIds = [[N_Id]],
 					LLIds = lists:flatten(ClusteredLLIds),
-					construct_FirstNeuroLayerTechnome(Cx_Id,Generation,[Cx_Id],FL_IVLs,[Cx_Id],FLIds,SpecCon);
+					construct_FirstNeuroLayerTechnome(Cx_Id,Generation,[Cx_Id],FL_IVLs,[Cx_Id],FLIds,SpecCon,Neural_Type,Heredity_Type);
 				false ->
 					FLIds = [{{-0.33,technome_constructor:generate_UniqueId()},neuron} || _ <- CT],%
 					ClusteredLLIds=[[{{0.33,technome_constructor:generate_UniqueId()},neuron}|| _ <- lists:seq(1,A#actuator.tot_vl)] || A <- Actuators],
 					LLIds = lists:flatten(ClusteredLLIds),
-					construct_FirstNeuroLayerTechnome(Cx_Id,Generation,LLIds,FL_IVLs,lists:duplicate(length(FLIds),Cx_Id),FLIds,SpecCon),
-					construct_LastNeuroLayerTechnome(Cx_Id,Generation,FLIds,LLIds,SpecCon)%
+					construct_FirstNeuroLayerTechnome(Cx_Id,Generation,LLIds,FL_IVLs,lists:duplicate(length(FLIds),Cx_Id),FLIds,SpecCon,Neural_Type,Heredity_Type),
+					construct_LastNeuroLayerTechnome(Cx_Id,Generation,FLIds,LLIds,SpecCon,Neural_Type,Heredity_Type)%
 			end,
 			%io:format("C_CF:~p~nC_CT:~p~n",[{Actuators,ClusteredLLIds},{Sensors,FLIds,CT_Tags}]),
 			C_CF = [{Actuator,Actuator_Ids} || {Actuator,Actuator_Ids}<-lists:zip(Actuators,ClusteredLLIds)],
@@ -175,22 +223,22 @@ construct_CortexTechnome(DX_Id,Generation,SpecCon)->
 		extract_maxdim([],Acc)->
 			lists:max(Acc).
 	
-construct_FirstNeuroLayerTechnome(SU_Id,Generation,O_Ids,[IVL|IVLs],[I_Id|I_Ids],[N_Id|FLIds],SpecCon)->
+construct_FirstNeuroLayerTechnome(SU_Id,Generation,O_Ids,[IVL|IVLs],[I_Id|I_Ids],[N_Id|FLIds],SpecCon,Neural_Type,Heredity_Type)->
 	N_TotIVL = IVL,
 	N_I = [{I_Id,IVL}],
 	N_TotOVL = 1,
 	N_O = O_Ids,
-	technome_constructor:construct_Neuron(SU_Id,Generation,N_Id,{N_TotIVL,N_I},{N_TotOVL,N_O},SpecCon),
-	construct_FirstNeuroLayerTechnome(SU_Id,Generation,O_Ids,IVLs,I_Ids,FLIds,SpecCon);
-construct_FirstNeuroLayerTechnome(_SU_Id,_Generation,_O_Ids,[],[],[],_SpecCon)->
+	technome_constructor:construct_Neuron(SU_Id,Generation,N_Id,{N_TotIVL,N_I},{N_TotOVL,N_O},SpecCon,Neural_Type,Heredity_Type),
+	construct_FirstNeuroLayerTechnome(SU_Id,Generation,O_Ids,IVLs,I_Ids,FLIds,SpecCon,Neural_Type,Heredity_Type);
+construct_FirstNeuroLayerTechnome(_SU_Id,_Generation,_O_Ids,[],[],[],_SpecCon,_Neural_Type,_Heredity_Type)->
 	done.
 	
-construct_LastNeuroLayerTechnome(SU_Id,Generation,I_Ids,[N_Id|LLIds],SpecCon)->
+construct_LastNeuroLayerTechnome(SU_Id,Generation,I_Ids,[N_Id|LLIds],SpecCon,Neural_Type,Heredity_Type)->
 	N_TotIVL = length(I_Ids),
 	N_I = [{I_Id,1}|| I_Id <- I_Ids],
 	N_TotOVL = 1,
 	N_O = [SU_Id],
-	technome_constructor:construct_Neuron(SU_Id,Generation,N_Id,{N_TotIVL,N_I},{N_TotOVL,N_O},SpecCon),
-	construct_LastNeuroLayerTechnome(SU_Id,Generation,I_Ids,LLIds,SpecCon);
-construct_LastNeuroLayerTechnome(_SU_Id,_Generation,_I_Ids,[],_SpecCon)->
+	technome_constructor:construct_Neuron(SU_Id,Generation,N_Id,{N_TotIVL,N_I},{N_TotOVL,N_O},SpecCon,Neural_Type,Heredity_Type),
+	construct_LastNeuroLayerTechnome(SU_Id,Generation,I_Ids,LLIds,SpecCon,Neural_Type,Heredity_Type);
+construct_LastNeuroLayerTechnome(_SU_Id,_Generation,_I_Ids,[],_SpecCon,_Neural_Type,_Heredity_Type)->
 	done.

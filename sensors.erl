@@ -982,7 +982,7 @@ fx_GraphSensor(CTVL,_SensorId,Parameters)->
 		gt	->
 			%Normal, assuming we have 10000 rows, we start from 1000 to 6000
 			PId ! {self(),sense,'EURUSD15',close,[HRes,VRes,graph_sensor],1000,200};
-		benchmark ->
+		validation ->
 			PId ! {self(),sense,'EURUSD15',close,[HRes,VRes,graph_sensor],199,100};
 		test ->
 			PId ! {self(),sense,'EURUSD15',close,[HRes,VRes,graph_sensor],99,last}
@@ -1008,7 +1008,7 @@ fx_ListSensor(CTVL,_SensorId,Parameters)->
 		gt	->
 			%Normal, assuming we have 10000 rows, we start from 1000 to 6000
 			PId ! {self(),sense,'EURUSD15',close,[HRes,list_sensor],5000,1000};
-		benchmark ->
+		validation ->
 			PId ! {self(),sense,'EURUSD15',close,[HRes,list_sensor],999,500};
 		test ->
 			PId ! {self(),sense,'EURUSD15',close,[HRes,list_sensor],499,last}
@@ -1051,7 +1051,7 @@ abc_pred(CTVL,_SensorId,Parameters)->
 					Sequence = ets:lookup_element(TableName,StartIndex,2),
 					%io:format("Sequence:~p~n",[Sequence]),
 					lists:flatten([translate_seq(Char) || Char <- Sequence]);
-				benchmark ->%io:format("benchmark~n"),
+				validation ->%io:format("benchmark~n"),
 					put(abc_pred,StartBenchIndex),
 					Sequence = ets:lookup_element(TableName,StartBenchIndex,2),
 					lists:flatten([translate_seq(Char) || Char <- Sequence]);
@@ -1071,61 +1071,47 @@ abc_pred(CTVL,_SensorId,Parameters)->
 	%io:format("Out:~p~n",[Out]),
 	Out.
 
-epiwalker_PrimSeq_Dec1(CTVL,_SensirId,Parameters)->
-	case get(sim_epitopes_pid) of
-		undefined ->
-			PId = sim_epitopes:start(),
-			put(sim_epitopes_pid,PId);
-		PId ->
-			PId
-	end,
-	case get(opmode) of
-		gt	->
-			PId ! {self(),prim_seq,CTVL,training};
-		benchmark ->
-			PId ! {self(),prim_seq,CTVL,validation};
-		test ->
-			PId ! {self(),prim_seq,CTVL,testing}
-	end,
-	receive 
-		{_From,percept_PrimSeq,Result}->
-%			io:format("Result:~p~n",[Result]),
-			[translate_seq1(Char) || Char<-Result]
-	end.
-	
-epiwalker_PCC(CTVL,_SensirId,Parameters)->
-	case get(sim_epitopes_pid) of
-		undefined ->
-			PId = sim_epitopes:start(),
-			put(sim_epitopes_pid,PId);
-		PId ->
-			PId
-	end,
-	case get(opmode) of
-		gt	->
-			PId ! {self(),pcc,CTVL,training};
-		benchmark ->
-			PId ! {self(),pcc,CTVL,validation};
-		test ->
-			PId ! {self(),pcc,CTVL,testing}
-	end,
-	receive 
-		{_From,percept_PCC,Result}->
-%			io:format("Result:~p~n",[Result]),
-			[translate_seq1(Char) || Char<-Result]
-	end.
-
-
 epiwalker_PrimSeq(CTVL,_SensirId,Parameters)->
-	Result =case get(opmode) of
-		gt	->
-			epiwalker_sense({Parameters,CTVL,training});
-		benchmark ->
-			epiwalker_sense({Parameters,CTVL,validation});
+	%io:format("CTVL:~p Paramters:~p OpMode:~p~n",[CTVL,Parameters,get(opmode)]),
+	case get(opmode) of
+		gt ->
+			{Label,Percept}=epiwalker_sense({Parameters,CTVL,training}),
+			Percept;
+		validation ->
+			{Label,Percept}=epiwalker_sense({Parameters,CTVL,validation}),
+			Percept;
 		test ->
-			epiwalker_sense({Parameters,CTVL,testing})
+			{Label,Percept}=epiwalker_sense({Parameters,CTVL,testing}),
+			Percept
 	end.
-	
+
+epiwalker_PrimSeqAART(CTVL,_SensirId,Parameters)->
+	%io:format("CTVL:~p Paramters:~p OpMode:~p~n",[CTVL,Parameters,get(opmode)]),
+	case get(opmode) of
+		gt ->%io:format("Sensors, gt~n"),
+			case get(first) of
+				undefined ->%io:format("Sensors, first undefined~n"),
+					put(epi_walker_table,validation),
+					{Label,Percept}=epiwalker_sense({Parameters,CTVL,validation}),
+					Percept;
+				_ ->
+					case get(epi_walker_table) of
+						training ->%io:format("Sensors, first training~n"),
+							{Label,Percept}=epiwalker_sense({Parameters,CTVL,training}),
+							{Label,Percept};
+						validation ->%io:format("Sensors, first validation~n"),
+							{Label,Percept}=epiwalker_sense({Parameters,CTVL,validation}),
+							Percept
+					end
+			end;
+		validation ->%io:format("sensor:validation~n"),
+			{Label,Percept}=epiwalker_sense({Parameters,CTVL,testing}),
+			Percept;
+		test ->%io:format("testing~n"),
+			{Label,Percept}=epiwalker_sense({Parameters,CTVL,testing}),
+			Percept
+	end.
+
 	-record(epiwalker_state,{
 		table_name,
 		key,
@@ -1137,6 +1123,14 @@ epiwalker_PrimSeq(CTVL,_SensirId,Parameters)->
 		map,
 		epi_reward,
 		nonepi_reward,
+		true_positive_acc=0,
+		true_negative_acc=0,
+		false_positive_acc=0,
+		false_negative_acc=0,
+		tot_epi_residues=0,
+		tot_nonepi_residues=0,
+		epi_acc=0,
+		nonepi_acc=0,
 		next
 	}).
 
@@ -1152,12 +1146,20 @@ epiwalker_PrimSeq(CTVL,_SensirId,Parameters)->
 				put(epiwalker_state,U_S),
 				lists:sublist(U_S#epiwalker_state.pcc,WindowSize);
 			(S#epiwalker_state.next == reset) ->
-				U_S=set_EpiState(ets:first(S#epiwalker_state.table_name),S),
+				%U_S=set_EpiState(ets:first(S#epiwalker_state.table_name),S),
+				U_S=set_InitEpiState(FileName,WindowSize),
 				put(epiwalker_state,U_S),
 				lists:sublist(U_S#epiwalker_state.pcc,WindowSize);
 			true ->
+				U_S=S,
 				lists:sublist(S#epiwalker_state.pcc,WindowSize)
-		end;
+		end,
+		[TargetResidue|_]=U_S#epiwalker_state.marker_seq,
+		Label = case (TargetResidue == 69) or (TargetResidue == 101) of
+			true -> 1;
+			false -> -1
+		end,
+		{Label,Percept};
 	epiwalker_sense({MapName,WindowSize,FileName})->%io:format("Sense~n"),
 		S= get(epiwalker_state),
 		Percept=if
@@ -1172,21 +1174,36 @@ epiwalker_PrimSeq(CTVL,_SensirId,Parameters)->
 				Map = U_S#epiwalker_state.map,
 				[ets:lookup_element(Map,{MapName,Char},2) || Char<-lists:sublist(U_S#epiwalker_state.prim_seq,WindowSize)];
 			(S#epiwalker_state.next == reset) ->
-				U_S=set_EpiState(ets:first(S#epiwalker_state.table_name),S),
+				%U_S=set_EpiState(ets:first(S#epiwalker_state.table_name),S),
+				U_S=set_InitEpiState(FileName,WindowSize),
 				put(epiwalker_state,U_S),	
 				Map = U_S#epiwalker_state.map,
 				[ets:lookup_element(Map,{MapName,Char},2) || Char<-lists:sublist(U_S#epiwalker_state.prim_seq,WindowSize)];
 			true ->
 				Map = S#epiwalker_state.map,
 				[ets:lookup_element(Map,{MapName,Char},2) || Char<-lists:sublist(S#epiwalker_state.prim_seq,WindowSize)]
-		end.		
+		end,
+		[TargetResidue|_]=S#epiwalker_state.marker_seq,
+		Label = case (TargetResidue == 69) or (TargetResidue == 101) of
+			true -> 1;
+			false -> -1
+		end,
+		{Label,Percept}.
 
 	set_InitEpiState(FileName,WindowSize)->
 		{ok,MapTN} = ets:file2tab(epi_map),
 		{ok,TN}=ets:file2tab(FileName),
 		Key=ets:first(TN),
 		S = #epiwalker_state{table_name=TN,map=MapTN,window_size=WindowSize},
-		set_EpiState(Key,S).
+		{EpiReward,NonEpiReward,Tot_EpiResidues,Tot_NonEpiResidues} = count(ets:first(TN),TN,0,0),
+		io:format("Tot_EpiResidues:~p Tot_NonEpiResidues:~p FileName:~p~n",[Tot_EpiResidues,Tot_NonEpiResidues,FileName]),
+		U_S=set_EpiState(Key,S),
+		U_S#epiwalker_state{
+			epi_reward=EpiReward,
+			nonepi_reward=NonEpiReward,
+			tot_epi_residues=Tot_EpiResidues,
+			tot_nonepi_residues=Tot_NonEpiResidues
+		}.
 		
 		set_EpiState(Key,S)->
 			TN = S#epiwalker_state.table_name,
@@ -1198,19 +1215,11 @@ epiwalker_PrimSeq(CTVL,_SensirId,Parameters)->
 			CPPSideSeq = lists:flatten(lists:duplicate(SideLength,-1)),
 			CPP = calculate_ppc(PrimSeq),
 			Proper_CPP = CPPSideSeq ++ CPP ++ CPPSideSeq,
-			TotEpitopeResidues=length([Char||Char <- MarkerSeq, (Char==69) or (Char==101)]),
-			TotResidues=length(PrimSeq),
-			EpiReward=50/TotEpitopeResidues,
-			NonEpiReward=50/(TotResidues-TotEpitopeResidues),
-			%io:format("Proper_PrimSeq:~p~n Proper_CPP:~p~n",[Proper_PrimSeq,Proper_CPP]),
-			%length(PrimSeq) == length(ets:lookup_element(TN,Key,4)),
-			U_S=S#epiwalker_state{
+			S#epiwalker_state{
 				key=Key,
 				prim_seq=Proper_PrimSeq,
 				pcc = Proper_CPP,
 				marker_seq=MarkerSeq,
-				epi_reward = EpiReward,
-				nonepi_reward = NonEpiReward,
 				next=undefined
 			}.
 		
@@ -1221,65 +1230,80 @@ epiwalker_PrimSeq(CTVL,_SensirId,Parameters)->
 			CPP=[(ets:lookup_element(TableName,Char,2)/SeqLength)*100 || Char <- PrimSeq],
 			ets:delete(TableName),
 			CPP.
-		calculate_ppc([Char|PrimSeq],TableName)->
-			case ets:lookup(TableName,Char) of
-				[] ->
-					ets:insert(TableName,{Char,1});
-				[{Char,Count}]->
-					ets:insert(TableName,{Char,Count+1})
-			end,
-			calculate_ppc(PrimSeq,TableName);
-		calculate_ppc([],_TableName)->
-			ok.
-	
-	translate_seq1(Char)->
-		case Char of
-			65 -> -1;
-			82 -> -0.9;
-			78 -> -0.8;
-			68 -> -0.7;
-			67 -> -0.6;
-			69 -> -0.5;
-			81 -> -0.4;
-			71 -> -0.3;
-			72 -> -0.2;
-			73 -> -0.1;
-			76 -> 0;
-			75 -> 0.1;
-			77 -> 0.2;
-			70 -> 0.3;
-			80 -> 0.4;
-			83 -> 0.5;
-			84 -> 0.6;
-			87 -> 0.7;
-			89 -> 0.8;
-			86 -> 0.9;
-			88 -> 1
+			
+			calculate_ppc([Char|PrimSeq],TableName)->
+				case ets:lookup(TableName,Char) of
+					[] ->
+						ets:insert(TableName,{Char,1});
+					[{Char,Count}]->
+						ets:insert(TableName,{Char,Count+1})
+				end,
+				calculate_ppc(PrimSeq,TableName);
+			calculate_ppc([],_TableName)->
+				ok.
+			
+	count('$end_of_table',TN,EpiAcc,NonEpiAcc)->
+		EpiReward = 0.5/EpiAcc,
+		NonEpiReward = 0.5/NonEpiAcc,
+		{EpiReward,NonEpiReward,EpiAcc,NonEpiAcc};
+	count(Key,TN,EpiAcc,NonEpiAcc)->
+		Threshold=0.1,
+		MarkerSeq=ets:lookup_element(TN,Key,4),
+		Residues = length(MarkerSeq),
+		EpiResidues = length([Char|| Char<- MarkerSeq, (Char == 69) or (Char == 101)]),
+		NonEpiResidues = Residues - EpiResidues,
+		%io:format("EpiResidues/Residues:~p~n",[EpiResidues/Residues]),
+%		case (((Key == ets:first(TN)) and (Key == ets:last(TN))) or (EpiResidues/Residues > Threshold)) of
+%			true ->
+				%io:format("Ratio:~p~n",[(EpiResidues/Residues > Threshold)]),
+				count(ets:next(TN,Key),TN,EpiAcc+EpiResidues,NonEpiAcc+NonEpiResidues).
+%			false ->
+%				count(ets:next(TN,Key),TN,EpiAcc,NonEpiAcc)
+%		end.
+
+	get_next_key(Key,TN,Threshold)->
+		MarkerSeq=ets:lookup_element(TN,Key,4),
+		Residues = length(MarkerSeq),
+		EpiResidues = length([Char|| Char<- MarkerSeq, (Char == 69) or (Char == 101)]),
+		NonEpiResidues = Residues - EpiResidues,
+		case EpiResidues/Residues > Threshold of
+			true ->
+				Key;
+			false ->
+				case ets:next(TN,Key) of
+					'$end_of_table' ->
+						Key;
+					NextKey ->
+						get_next_key(NextKey,TN,Threshold)
+				end
 		end.
+		
 translate_seq(Char)->
 		case Char of
-			65 -> [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]; %A
-			82 -> [0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]; %R
-			78 -> [0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]; %N
-			68 -> [0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]; %D
-			67 -> [0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]; %C
-			69 -> [0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]; %
-			81 -> [0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
-			71 -> [0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0];
-			72 -> [0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0];
-			73 -> [0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0];
-			76 -> [0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0];
-			75 -> [0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0];
-			77 -> [0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0];
-			70 -> [0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0];
-			80 -> [0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0];
-			83 -> [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0];
-			84 -> [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0];
-			87 -> [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0];
-			89 -> [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0];
-			86 -> [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0];
-			88 -> [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]
+			65 -> [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]; %A Ala
+			82 -> [0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]; %R Arg
+			78 -> [0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]; %N Asn
+			68 -> [0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]; %D Asp
+			67 -> [0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]; %C Cys
+			69 -> [0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]; %E Glu
+			81 -> [0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0]; %Q Gln
+			71 -> [0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0]; %G Gly
+			72 -> [0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0]; %H His
+			73 -> [0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0]; %I Ile
+			76 -> [0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0]; %L Leu
+			75 -> [0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0]; %K Lys
+			77 -> [0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0]; %M Met
+			70 -> [0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0]; %F Phe
+			80 -> [0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0]; %P Pro
+			83 -> [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0]; %S Ser
+			84 -> [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0]; %T Thr
+			87 -> [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0]; %W Trp
+			89 -> [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0]; %Y Tyr
+			86 -> [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0]; %V Val
+			88 -> [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]  %X 
 		end.
+		
+
 %A 	Adenine
 %C 	Cytosine
 %G 	Guanine
@@ -1296,3 +1320,41 @@ translate_seq(Char)->
 %V 	A or C or G
 %N 	any base
 %. or - 	gap
+
+
+%Amino 
+%acid 	Property
+%	P1	P2	P3	P4	P5
+%Ala 	8.1 	1.041	1.064	2.1	0
+%Arg	10.5	1.038	0.873	4.2	52
+%Asn	11.6	1.117	0.776	7	3.38
+%Asp	13	1.033	0.866	10	40.7
+%Cys	5.5	0.96	1.412	1.4	1.48
+%Glu	12.3	1.094	0.851	7.8	49.91
+%Gln	10.5	1.165	1.015	6	3.53
+%Gly	9	1.142	0.874	5.7	0
+%His	10.4	0.982	1.105	2.1	51.6
+%Ile	5.2	1.002	1.152	-8	0.15
+%Leu	4.9	0.967	1.25	-9.2	0.45
+%Lys	11.3	1.093	0.93	5.7	49.5
+%Met	5.7	0.947	0.826	-4.2	1.43
+%Phe	5.2	0.93	1.091	-9.2	0.35
+%Pro	8	1.055	1.064	2.1	1.58
+%Ser	9.2	1.169	1.012	6.5	1.67
+%Thr	8.6	1.073	0.909	5.2	1.66
+%Trp	5.4	0.925	0.893	-10	2.1
+%Tyr	6.2	0.961	1.161	-1.9	1.61
+%Val	5.9	0.982	1.383	-3.7	0.13
+
+
+
+aart_classifier(CTVL,_SensorId,Parameters)->
+	[TableName] = Parameters,
+	case get(opmode) of
+		gt ->%io:format("gt~n"),
+			classification_scape:classify_sense(TableName,[trn,val]);
+		validation ->io:format("sensors:aart_classifier(...), OpMode = validation~n"),
+			classification_scape:classify_sense(TableName,[tst]);
+		test ->
+			classification_scape:classify_sense(TableName,[tst])
+	end.

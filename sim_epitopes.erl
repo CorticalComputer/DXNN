@@ -219,7 +219,7 @@ write_test()->
 		{82,1},
 		{78,1},
 		{68,1},
-		{67,1},
+		{67,-1},
 		{69,1},
 		{81,1},
 		{71,-1},
@@ -244,7 +244,7 @@ write_test()->
 		{68,-1},
 		{67,0},
 		{69,-1},
-		{81,10},
+		{81,0},
 		{71,0},
 		{72,0.1},
 		{73,0},
@@ -280,13 +280,159 @@ write_test()->
 		{84,-0.7},
 		{87,-0.9},
 		{89,-1.3},
-		{86,4.3},
+		{86,4.2},
 		{88,0}]},
+		
+
+	Polarity_Grantham_1974={"Polarity_Grantham_1974",[
+		{65,8.1},
+		{82,10.5},
+		{78,11.6},
+		{68,13},
+		{67,5.5},
+		{69,12.3},
+		{81,10.5},
+		{71,9},
+		{72,10.4},
+		{73,5.2},
+		{76,4.9},
+		{75,11.3},
+		{77,5.7},
+		{70,5.2},
+		{80,8},
+		{83,9.2},
+		{84,8.6},
+		{87,5.4},
+		{89,6.2},
+		{86,5.9},
+		{88,0}]},
+		
+	Flexibility_KarplusSchulz_1985={"Flexibility_KarplusSchulz_1985",[
+		{65,1.041},
+		{82,1.038},
+		{78,1.117},
+		{68,1.033},
+		{67,0.96},
+		{69,1.094},
+		{81,1.165},
+		{71,1.142},
+		{72,0.982},
+		{73,1.002},
+		{76,0.967},
+		{75,1.093},
+		{77,0.947},
+		{70,0.93},
+		{80,1.055},
+		{83,1.169},
+		{84,1.073},
+		{87,0.925},
+		{89,0.961},
+		{86,0.982},
+		{88,0}]},
+		
+	Antigenicity_KolaskarTongaonkar_1990={"Antigenicity_KolaskarTongaonkar_1990",[
+		{65,1.064},
+		{82,0.873},
+		{78,0.776},
+		{68,0.866},
+		{67,1.412},
+		{69,0.851},
+		{81,1.015},
+		{71,0.874},
+		{72,1.105},
+		{73,1.152},
+		{76,1.25},
+		{75,0.93},
+		{77,0.826},
+		{70,1.091},
+		{80,1.064},
+		{83,1.012},
+		{84,0.909},
+		{87,0.893},
+		{89,1.161},
+		{86,1.383},
+		{88,0}]},
+		
+	Hydrophilicity_Parker_1986={"Hydrophilicity_Parker_1986",[
+		{65,2.1},
+		{82,4.2},
+		{78,7},
+		{68,10},
+		{67,1.4},
+		{69,7.8},
+		{81,6},
+		{71,5.7},
+		{72,2.1},
+		{73,-8},
+		{76,-9.2},
+		{75,5.7},
+		{77,-4.2},
+		{70,-9.2},
+		{80,2.1},
+		{83,6.5},
+		{84,5.2},
+		{87,-10},
+		{89,-1.9},
+		{86,-3.7},
+		{88,0}]},
+		
+	Polarity_Ponnuswamy_1980={"Polarity_Ponnuswamy_1980",[
+		{65,0},
+		{82,52},
+		{78,3.38},
+		{68,40.7},
+		{67,1.48},
+		{69,49.91},
+		{81,3.53},
+		{71,0},
+		{72,51.6},
+		{73,0.15},
+		{76,0.45},
+		{75,49.5},
+		{77,1.43},
+		{70,0.35},
+		{80,1.58},
+		{83,1.67},
+		{84,1.66},
+		{87,2.1},
+		{89,1.61},
+		{86,0.13},
+		{88,0}]},
+		
+%Amino 
+%acid 	Property
+%	P1	P2	P3	P4	P5
+%Ala 	8.1 	1.041	1.064	2.1	0
+%Arg	10.5	1.038	0.873	4.2	52
+%Asn	11.6	1.117	0.776	7	3.38
+%Asp	13	1.033	0.866	10	40.7
+%Cys	5.5	0.96	1.412	1.4	1.48
+%Glu	12.3	1.094	0.851	7.8	49.91
+%Gln	10.5	1.165	1.015	6	3.53
+%Gly	9	1.142	0.874	5.7	0
+%His	10.4	0.982	1.105	2.1	51.6
+%Ile	5.2	1.002	1.152	-8	0.15
+%Leu	4.9	0.967	1.25	-9.2	0.45
+%Lys	11.3	1.093	0.93	5.7	49.5
+%Met	5.7	0.947	0.826	-4.2	1.43
+%Phe	5.2	0.93	1.091	-9.2	0.35
+%Pro	8	1.055	1.064	2.1	1.58
+%Ser	9.2	1.169	1.012	6.5	1.67
+%Thr	8.6	1.073	0.909	5.2	1.66
+%Trp	5.4	0.925	0.893	-10	2.1
+%Tyr	6.2	0.961	1.161	-1.9	1.61
+%Val	5.9	0.982	1.383	-3.7	0.13
+		
+%P1= Polarity (Grantham, 1974)
+%P3= Flexibility (Karplus-Schulz, 1985)
+%P3= Antigenicity Kolaskar and Tongaonkar (1990) 
+%P4= Hydrophilicity scale (Parker et al., 1986)
+%P5= Polarity (Ponnuswamy et al., 1980)
 
 	%new_map(),
 	%{ok,TN} = ets:file2tab(epi_map),
 	TN = ets:new(epi_map,[set,private]),
-	[update_map(TN,Map) || Map <- [PrimSeqDec,SideChainPolarity,SideChainCharge,Hydropathy]],
+	[update_map(TN,Map) || Map <- [PrimSeqDec,SideChainPolarity,SideChainCharge,Hydropathy,Polarity_Grantham_1974,Flexibility_KarplusSchulz_1985,Antigenicity_KolaskarTongaonkar_1990,Hydrophilicity_Parker_1986,Polarity_Ponnuswamy_1980]],
 	ets:tab2file(TN,epi_map),
 	ets:delete(TN).
 	
@@ -314,64 +460,28 @@ ok(EpiReward,NonEpiReward,TargetResidue,Mark)->
 -record(stats,{
 	epi_residues=0,
 	non_epi_residues=0,
+	tot_residues=0,
 	seq_acc=0,
-	tot_epi_reward=0,
-	tot_non_epi_reward=0,
-	fitness=0,
-	tp=0,
-	tn=0
-}).	
+	epi_reward,
+	non_epi_reward
+}).
+
 stats()->
 	{ok,Tr} = ets:file2tab(training),
 	{ok,Va} = ets:file2tab(validation),
 	{ok,Te} = ets:file2tab(testing),
+	Tr_Stats=count(ets:first(Tr),Tr,0,0),
+	Va_Stats=count(ets:first(Va),Va,0,0),
+	Te_Stats=count(ets:first(Te),Te,0,0),
+	io:format("Tr_Stats:~p~nVa_Stats:~p~nTe_Stats:~p~n",[Tr_Stats,Va_Stats,Te_Stats]).
 	
-	count(ets:first(Tr),Tr,#stats{}),
-	count(ets:first(Va),Va,#stats{}),
-	count(ets:first(Te),Te,#stats{}).
-	
-	count('$end_of_table',TN,S)->
-		io:format("Table:~p Statistics for ~p Seqs:~n Tot Epitope Residues:~p Tot Non-Epitopes Residues:~p EpiReward:~p NonEpiReward:~p Fitness:~p True Positive:~p True Negative:~p~n",[TN,S#stats.seq_acc,S#stats.epi_residues,S#stats.non_epi_residues,S#stats.tot_epi_reward,S#stats.tot_non_epi_reward, S#stats.fitness,S#stats.tp,S#stats.tn]);
-	count(Key,TN,S)->
-		PrimSeq=ets:lookup_element(TN,Key,3),
+	count('$end_of_table',TN,EpiAcc,NonEpiAcc)->
+		EpiReward = 0.5/EpiAcc,
+		NonEpiReward = 0.5/NonEpiAcc,
+		{EpiReward,NonEpiReward,EpiAcc,NonEpiAcc};
+	count(Key,TN,EpiAcc,NonEpiAcc)->
 		MarkerSeq=ets:lookup_element(TN,Key,4),
-		TotResidues = length(PrimSeq),
+		Residues = length(MarkerSeq),
 		EpiResidues = length([Char|| Char<- MarkerSeq, (Char == 69) or (Char == 101)]),
-		NonEpiResidues = TotResidues - EpiResidues,
-		
-		TotEpitopeResidues=length([Char||Char <- MarkerSeq, (Char==69) or (Char==101)]),
-		TotResidues=length(PrimSeq),
-		EpiReward=50/TotEpitopeResidues,
-		NonEpiReward=50/(TotResidues-TotEpitopeResidues),
-		
-		{Fitness,TPos,TNeg}=lists:unzip3([fitness_calc(Char,EpiReward,NonEpiReward) || Char <- MarkerSeq]),
-		U_S=S#stats{
-			epi_residues = S#stats.epi_residues+EpiResidues,
-			non_epi_residues = S#stats.non_epi_residues+NonEpiResidues,
-			seq_acc = S#stats.seq_acc+1,
-			tot_epi_reward = S#stats.tot_epi_reward+EpiReward*EpiResidues,
-			tot_non_epi_reward = S#stats.tot_non_epi_reward+NonEpiReward*NonEpiResidues,
-			fitness = S#stats.fitness+lists:sum(Fitness),
-			tp = S#stats.tp + lists:sum(TPos),
-			tn = S#stats.tn + lists:sum(TNeg)
-		},
-			
-		count(ets:next(TN,Key),TN,U_S).
-		
-fitness_calc(TargetResidue,EpiReward,NonEpiReward)->
-	{Fitness,TP,TN}=case (TargetResidue == 69) or (TargetResidue == 101) of
-		true ->
-			Mark = 1,
-			Val=case Mark > 0 of
-				true -> 1;
-				false -> 0
-			end,
-			{(2*EpiReward - (EpiReward - EpiReward*functions:sat(Mark,1,-1)))/2,Val,0};
-		false ->
-			Mark = -1,
-			Val=case Mark < 0 of
-				true -> 1;
-				false -> 0
-			end,
-			{(2*NonEpiReward + (-NonEpiReward - NonEpiReward*functions:sat(Mark,1,-1)))/2,0,Val}
-	end.
+		NonEpiResidues = Residues - EpiResidues,
+		count(ets:next(TN,Key),TN,EpiAcc+EpiResidues,NonEpiAcc+NonEpiResidues).

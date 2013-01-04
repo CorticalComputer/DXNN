@@ -296,6 +296,7 @@ sim(ExoSelf,S,A)->
 				TableName ->
 					sense(S,Parameters)
 			end,
+%			io:format("Result:~p~n",[{Result}]),
 			From ! {self(),Result},
 %			io:format("State:~p~n",[U_S]),
 %			io:format("******************************FINISHED PROCESSING SENSE SIGNAL******************************~n"),

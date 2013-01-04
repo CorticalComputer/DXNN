@@ -230,12 +230,12 @@ handle_call({weight_revert},{Cx_PId,_Ref}, S)->
 	[ets:lookup_element(IdsNPids,NId,2) ! {self(),gt,weight_revert} || NId <- DX#dx.n_ids],
 	{reply, done, S};
 
-handle_call({backup_request},{Cx_PId,_Ref},S)->
+handle_call({backup_request,GlobalParameters},{Cx_PId,_Ref},S)->
 	DX=S#state.dx,
 	IdsNPids = S#state.ids_n_pids,
 	
-	backup_DX(DX,IdsNPids),
-%	io:format("Backup of DX: ~p completed.~n",[DX#dx.id]),
+	backup_DX(DX,IdsNPids,GlobalParameters),
+	io:format("Backup of DX: ~p completed.~n",[DX#dx.id]),
 	{reply, done, S};
 
 handle_call(memory_reset,{Cx_PId,_Ref},S)->
@@ -274,8 +274,10 @@ handle_cast({Cx_Pid,fitness,{FitnessType,Fitness,Goal_Status}},S)->
 	IdsNPids = S#state.ids_n_pids,
 	StartTime = S#state.start_time,
 	{Fitness,Profile} = technome_constructor:construct_FitnessProfile(DX,Fitness),
+	[Main_Fitness|_] = Fitness,
 	%[DX] = mnesia:dirty_read({dx,DX_Id}),
 	mnesia:dirty_write(DX#dx{
+		main_fitness = Main_Fitness,
 		fitness = Fitness,
 		profile = Profile
 	}),
@@ -294,7 +296,7 @@ handle_cast({Cx_Pid,championship_fitness,{FitnessType,Fitness,Goal_Status}},S)->
 	io:format("DX_Id:~p::~n OpMode:~p~n TimeElapsed:~pus~n FType:~p~n Fitness:~p~n FProfile:~p~n",[DX#dx.id,OpMode,TimeElapsed,FitnessType,TrueFitness,FitnessProfile]),
 	{stop,normal,{OpMode,DX,IdsNPids,{FitnessType,TrueFitness,FitnessProfile}}};
 
-handle_cast({Cx_Pid,benchmark_fitness,{FitnessType,Fitness,Goal_Status}},S)->
+handle_cast({Cx_Pid,validation_fitness,{FitnessType,Fitness,Goal_Status}},S)->
 	OpMode = S#state.op_mode,
 	DX=S#state.dx,
 	IdsNPids = S#state.ids_n_pids,
@@ -310,10 +312,9 @@ handle_cast({Cx_Pid,test_fitness,{FitnessType,Fitness,Goal_Status}},S)->
 	DX=S#state.dx,
 	IdsNPids = S#state.ids_n_pids,
 	StartTime = S#state.start_time,
-	%{TrueFitness,FitnessProfile} = technome_constructor:construct_FitnessProfile(DX,Fitness),
+	{TrueFitness,FitnessProfile} = technome_constructor:construct_FitnessProfile(DX,Fitness),
 	TimeElapsed = integer_to_list(timer:now_diff(now(),StartTime)),
-	%io:format("DX_Id:~p::~n OpMode:~p~n TimeElapsed:~pus~n FType:~p~n Fitness:~p~n FProfile:~p~n",[DX#dx.id,OpMode,TimeElapsed,FitnessType,TrueFitness,FitnessProfile]),
-	[io:format("FITNESS:~p~n",[Val]) || Val <- Fitness],	
+	io:format("DX_Id:~p::~n OpMode:~p~n TimeElapsed:~pus~n FType:~p~n Fitness:~p~n FProfile:~p~n",[DX#dx.id,OpMode,TimeElapsed,FitnessType,TrueFitness,FitnessProfile]),	
 	S#state.pm_pid ! {self(),test_complete,S#state.id,Fitness,TimeElapsed},
 	{stop,normal,{OpMode,DX,IdsNPids,{FitnessType,Fitness,void_fitness_profile}}};
 
@@ -381,7 +382,7 @@ terminate(Reason, State) ->
 							gen_server:cast(monitor,{DX_Id,champion_terminated,Fitness,Fitness_Profile})
 							%io:format("******** ExoSelf: ~p terminated with reason: ~p::OpMode:~p DX_Id:~p::~n",[self(),Reason,OpMode,DX_Id]),
 					end;
-				benchmark ->
+				validation ->
 					void;
 				test ->
 					void;
@@ -459,9 +460,19 @@ link_CerebralUnits(DX,IdsNPids,OpMode,Smoothness)->
 		%io:format("I_PIds:~p~n NDWP:~p~n",[I_PIds,NDWP]),
 		TotIVL = N#neuron.ivl,
 		TotOVL = N#neuron.ovl,
-		LearningType = N#neuron.lt,
+		%LearningType = N#neuron.lt,
 		SU_Id = N#neuron.su_id,
-		State = {self(),N_Id,SU_Id,TotIVL,I_PIds,TotOVL,O_PIds,LearningType,RO_PIds,NDWP},
+		
+		Parameters=N#neuron.parameters,
+		PreProcessors=N#neuron.preprocessor,
+		SignalIntegrator=N#neuron.signal_integrator,
+		ActivationFunction=N#neuron.activation_function,
+		PostProcessor=N#neuron.postprocessor,
+		Plasticity=N#neuron.plasticity,
+		MLFFNN_Module=N#neuron.mlffnn_module,
+		Type=N#neuron.type,
+		Heredity_Type=N#neuron.heredity_type,
+		State = {self(),N_Id,SU_Id,TotIVL,I_PIds,TotOVL,O_PIds,RO_PIds,NDWP,Parameters,PreProcessors,SignalIntegrator,ActivationFunction,PostProcessor,Plasticity,MLFFNN_Module,Type,Heredity_Type},
 		N_PId ! {self(),init,State},
 		link_Neurons(IdsNPids,N_Ids);
 	link_Neurons(_IdsNPids,[])->
@@ -478,7 +489,10 @@ link_CerebralUnits(DX,IdsNPids,OpMode,Smoothness)->
 				Actuators= [Actuator||{Actuator,_NIds} <-Cx#cortex.cf];
 			hypercube ->
 				Sensors = Cx#cortex.sensors,
-				Actuators = Cx#cortex.actuators
+				Actuators = Cx#cortex.actuators;
+			aart ->
+				Sensors = Cx#cortex.sensors,
+				Actuators = Cx#cortex.actuators	
 		end,
 		Cx_CF = convert_Ids2PIds(IdsNPids,Cx#cortex.cf,[]),
 		Cx_CT = convert_Ids2PIds(IdsNPids,Cx#cortex.ct,[]),
@@ -488,7 +502,7 @@ link_CerebralUnits(DX,IdsNPids,OpMode,Smoothness)->
 		[DX] = mnesia:dirty_read({dx,Cx#cortex.su_id}),
 		Morphology = DX#dx.morphology,
 		Specie_Id = DX#dx.specie_id,
-		State={self(),Cx_Id,Sensors,Actuators,Cx_CF,Cx_CT,get(max_attempts),Smoothness,OpMode,Cx_Type,Cx_Plascity,Morphology,Specie_Id,length(Cx#cortex.cids),Dimensions,Densities,Cx#cortex.substrate_link_form},
+		State={self(),Cx_Id,Sensors,Actuators,Cx_CF,Cx_CT,get(max_attempts),Smoothness,OpMode,Cx_Type,Cx_Plascity,Morphology,Specie_Id,length(Cx#cortex.cids),Dimensions,Densities,Cx#cortex.categories,Cx#cortex.substrate_link_form},
 		Cx_Pid ! {self(),init,State},
 		true.
 
@@ -509,16 +523,17 @@ deactivate_DX(DX,IdsNPids)->
 	[ets:lookup_element(IdsNPids,Id,2) ! {self(),terminate} || Id <- DX#dx.n_ids],
 	[ets:lookup_element(IdsNPids,Id,2) ! {self(),terminate} || Id <- [DX#dx.cx_id]].
 	
-backup_DX(DX,IdsNPids) ->
-%	io:format("Backing up DX~n"),
-	backup_Neurons(IdsNPids,DX#dx.n_ids),
+backup_DX(DX,IdsNPIds,GlobalParameters) ->
+%	io:format("Backing up DX:~p~n",[DX#dx.id]),
+	backup_Neurons(IdsNPIds,DX#dx.n_ids),
+	backup_Cortex(IdsNPIds,DX#dx.cx_id,GlobalParameters),
 	done.
 		
 	backup_Neurons(IdsNPids,[N_Id|N_Ids])->
 		N_PId = ets:lookup_element(IdsNPids,N_Id,2),
 		N_PId ! {self(),get_backup},
 		receive
-			{N_PId,backup,{IList,O_PIds,RO_PIds,LT,NDWP}} ->
+			{N_PId,backup,{IList,O_PIds,RO_PIds,NDWP}} ->
 				[N] = mnesia:dirty_read({neuron,N_Id}),
 				I = [{ets:lookup_element(IdsNPids,I_PId,2),IVL}|| {I_PId,IVL} <- IList], %I from Cortex xor Subcore or Neurons
 				O = [ets:lookup_element(IdsNPids,O_PId,2)|| O_PId <- O_PIds], %O to Cortex xor Subcore or Neurons
@@ -533,7 +548,6 @@ backup_DX(DX,IdsNPids) ->
 					i = I,
 					o = O,
 					ro = RO,
-					lt = LT,
 					dwp = DWP
 				})
 		end,
@@ -542,6 +556,17 @@ backup_DX(DX,IdsNPids) ->
 	backup_Neurons(_IdsNPids,[])->
 		done.
 
+	backup_Cortex(IdsNPIds,Cx_Id,GlobalParameters)->
+		case GlobalParameters of
+			undefined ->
+				ok;
+			Categories ->
+				[Cx] =  mnesia:dirty_read({cortex,Cx_Id}),
+				mnesia:dirty_write(cortex,Cx#cortex{
+					categories=Categories
+				})
+		end.
+	
 choose_randomNIdPs(MutationP,N_IdPs)->
 	case choose_randomNIdPs(N_IdPs,MutationP,[]) of
 		[] ->

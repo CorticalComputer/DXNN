@@ -78,7 +78,6 @@ sat_dzone(Val,Max,Min,DZMax,DZMin)->
 		false ->
 			sat(Val,Max,Min)
 	end.
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Activation Functions %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 tanh(DIV,DWP)->	
 	{DotProduct,FunctionParameters} = calculate_dotproduct(DIV,DWP,0),
@@ -173,6 +172,77 @@ sigmoid(Val)-> %(-1 : 1)--Der:Y*(1-Y)
 sigmoid1(Val)-> %(-1 : 1) -- Der:1/((1+abs(val))*(1+abs(val)))
 	Val/(1+abs(Val)).
 	
+-record(complex,{r,i}).
+complex_add(A,B)->
+	#complex{r=A#complex.r+B#complex.r, i=A#complex.i+B#complex.i}.
+
+complex_subtract(A,B)->
+	#complex{r=A#complex.r-B#complex.r, i=A#complex.i-B#complex.i}.
+
+complex_multiply(A,B)->
+	 R = A#complex.r*B#complex.r - A#complex.i*B#complex.i,
+	 I = A#complex.i*B#complex.r + A#complex.r*B#complex.i,
+	 #complex{r=R,i=I}.
+	 
+complex_divide(A,B)->
+	Denom = math:pow(B#complex.r,2) +  math:pow(B#complex.i,2),
+	R = A#complex.r*B#complex.r + A#complex.i*B#complex.i,
+	I = A#complex.i*A#complex.r + A#complex.r*A#complex.i,
+	#complex{r=R/Denom,i=I/Denom}.
+
+complex_processing(Input,Weights)->
+	Max = 1,
+	HP = math:pi()/2,
+	Complex_Form = [#complex{r=math:cos(Val*HP/Max),i=math:sin(Val*HP/Max)} || Val <- Input],
+	Zipped_Form = lists:zip(Input,Weights),
+	Real = [math:cos((I/Max)*HP + (W/Max)*HP) || {I,W} <- Zipped_Form],
+	Imaginary = [math:sin((I/Max)*HP + (W/Max)*HP) || {I,W} <- Zipped_Form],
+	Magnitude = math:sqrt(math:pow(lists:sum(Real),2) + math:pow(lists:sum(Imaginary),2)),
+	io:format(" Input:~p~n Weights:~p~n Max:~p HP:~p~n Complex Input:~p~n Real:~p~n Imaginary:~p~n Magnitude:~p~n",[Input,Weights,Max,HP,Complex_Form,Real, Imaginary, Magnitude]).
+	
+complex_af1({RealAcc,ImaginaryAcc})->
+	RealSqrd = math:pow(sigmoid(RealAcc),2),
+	ImaginarySqrd = math:pow(sigmoid(ImaginaryAcc),2),
+	2*(math:sqrt(RealSqrd + ImaginarySqrd)-1).
+	
+complex_af2({RealAcc,ImaginaryAcc})->
+	2*(math:pow(sigmoid_01(RealAcc)-sigmoid_01(ImaginaryAcc),2) - 1).
+
+	sigmoid_01(Val)->
+		1/(1+math:exp(-Val)).
+
+rbf_gaussian(Centroidal_Distance)->
+	math:exp(-Centroidal_Distance).
+	
+rbf_multiquadric(Centroidal_Distance)->
+	math:pow(1+Centroidal_Distance,0.5).
+	
+rbf_inverse_multiquadric(Centroidal_Distance)->
+	math:pow(1+Centroidal_Distance,-0.5).
+	
+rbf_cauchy(Centroidal_Distance)->
+	math:pow(1+Centroidal_Distance,-1).
+
+	centroidal_distance(CV,IV,R)->
+		DV=vector_distance(IV,CV,[]),
+		lists:sum([Val*Val||Val<-DV])/(R*R).
+	
+		vector_distance([Val1|V1],[Val2|V2],Acc)->
+			vector_distance(V1,V2,[Val1-Val2|Acc]);
+		vector_distance([],[],Acc)->
+			lists:reverse(Acc).
+
+sigmoid_unipolar(Val)->%(-inf,inf) onto (0,1)
+	1/(1+math:exp(-Val)).
+	
+sigmoid_bipolar(Val)->%(-inf,inf) onto (-1,1)
+	(1-math:exp(-Val))/(1+math:exp(-Val)).
+	
+
+conic_section_function(CV,IV,WV)->
+	void.
+	
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Error Functions %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %DiversityList: [[GenN,GenN-1...Gen1], [GenN,GenN-1...Gen1]]
 %LL = [[Gen1...GenN]...[Gen1...GenN]]

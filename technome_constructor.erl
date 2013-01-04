@@ -9,7 +9,8 @@
 -compile(export_all).
 -include("records.hrl").
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Technome_Constructor Options %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--define(TEST_CONSTRAINT,#constraint{morphology=pole2_balancing3,sc_types=[neural]}).%pole2_balancing3}).
+-define(TEST_CONSTRAINT,#constraint{morphology=pole2_balancing3,sc_types=[neural],sc_hypercube_plasticity=[none], sc_neural_linkform=recursive, neural_afs = [tanh],neural_signal_integrators=[complex_dot]}).%pole2_balancing3}).
+-define(INIT_CONSTRAINTS,[#constraint{morphology=Morphology,sc_types=SC_Types, sc_hypercube_plasticity=[none], sc_neural_linkform=LinkForm, neural_afs = [tanh],neural_signal_integrators=[complex_dot]}|| Morphology<-[epiwalker],LinkForm<-[recursive], SC_Types<-[[aart]]]).
 %%%NEURON PARAMETERS
 %-define(NEURO_TYPES,[standard]).%[standard,bst],
 %-define(NEURO_ADAPTERS,[none]). %[none,modulated]
@@ -70,18 +71,27 @@ test({Population_Id,Specie_Id,DX_Id,OpMode,SpecCon})->
 			io:format("********ERROR:technome_constructor:text(): ~p~n",[ERROR])
 	end.
 
-print_PopulationAgents(Population_Id)->
+print_PopulationIds(Population_Id)->
 	[P] = mnesia:dirty_read({population,Population_Id}),
-	[print_SpecieAgents(Specie_Id)|| Specie_Id<-P#population.specie_ids].
+	_ = [print_SpecieAgentIds(Specie_Id)|| Specie_Id<-P#population.specie_ids],
+	ok.
 	
-	print_SpecieAgents(Specie_Id)->
+	print_SpecieAgentIds(Specie_Id)->
 		[S] = mnesia:dirty_read({specie,Specie_Id}),
-		io:format("DX_Ids:~n"),
-		lists:foreach(fun(DX_Id)->io:format("DX_Id:~p~n",[DX_Id]) end, S#specie.dx_ids),
-		io:format("Dead_Pool:~n"),
-		lists:foreach(fun(X)->io:format("~p~n",[X]) end, S#specie.dead_pool).
+		io:format("****Specie_Id:~p****~n",[Specie_Id]),
+		[print_GeneticLine(Agent_Id,1)||Agent_Id<-S#specie.seed_agent_ids].
 		
-view_dx(DX_Id)->
+		print_GeneticLine(Agent_Id,Generation)->
+			[A] = mnesia:dirty_read({dx,Agent_Id}),
+			io:format("Generation:~p Agent Id:~p~n",[Generation,Agent_Id]),
+			[print_GeneticLine(Id,Generation+1) || Id <- A#dx.offspring_ids].
+
+print_AllAgentIds()->
+	Agent_Ids=mnesia:dirty_all_keys(dx),
+	[io:format("Agent_Id:~p~n",[Agent_Id])||Agent_Id<-Agent_Ids],
+	io:format("Total agents:~p~n",[length(Agent_Ids)]).
+
+print_agent(DX_Id)->
 	F = fun()->
 		[DX] = mnesia:read({dx,DX_Id}),
 		Cx_Id = DX#dx.cx_id,
@@ -100,12 +110,14 @@ view_dx(DX_Id)->
 		view_Neuron(N_Id)->
 			[N] = mnesia:read({neuron,N_Id}),
 			io:format("***Neuron:~n~p~n",[N]).
-
+	
+	print_profile(undefined)->
+		io:format("Profile:~p~n",[undefined]);
 	print_profile(Profile)->
 		io:format("Profile:~p~n",[Profile]),
 		[TotCores,TotSubCores,TotNeurons] = Profile,
 		io:format("TotCores:~p TotSubCores:~p TotNeurons:~p~n",[TotCores,TotSubCores,TotNeurons]).
-
+		
 	print_summary(S)->
 		%-record(summary,{type,tot_neurons,tot_n_ils,tot_n_ols,tot_n_ros,af_distribution,fitness}).
 		io:format("Type:~p~n Total Neurons:~p~n Total Neural Inputs:~p~n Tot Neural Outputs:~p~n Tot Neural Recursives:~p~n {TotTanh,TotSin,TotCos,TotGaussian,TotAbsolute,TotSgn,TotLog,TotSqrt,TotLin}:~p~n Fitness:~p~n",
@@ -130,7 +142,9 @@ clone_dx(DX_Id,CloneDX_Id)->
 		mnesia:write(DX#dx{
 			id = CloneDX_Id,
 			cx_id = CloneCx_Id,
-			n_ids = CloneN_Ids}),
+			n_ids = CloneN_Ids,
+			parent_ids=[DX_Id],
+			offspring_ids=[]}),
 		ets:delete(IdsNCloneIds)
 	end,
 	mnesia:transaction(F).
@@ -199,58 +213,173 @@ generate_UniqueId()->
 	{MegaSeconds,Seconds,MicroSeconds} = now(),
 	1/(MegaSeconds*1000000 + Seconds + MicroSeconds/1000000).
 
-construct_Neuron(SU_Id,Generation,N_Id,{N_TotIVL,N_I},{N_TotOVL,N_O},SpeCon)->
-	Neural_Types = SpeCon#constraint.neural_types,
-	Type = lists:nth(random:uniform(length(Neural_Types)),Neural_Types),
-	LearningType = generate_NeuronLT(SpeCon#constraint.neural_pfs,SpeCon#constraint.neural_afs),
-
-	DWP = case Type of
-		standard ->
-			create_NWP(N_I,[]);
-		bst ->
-			{random:uniform()/2 - 0.5, random:uniform()/2 - 0.5}
-	end,
-	RO = calculate_RO(SU_Id,N_Id,N_O,[]),
-	Neuron = #neuron{	
+construct_Neuron(SU_Id,Generation,N_Id,{N_TotIVL,N_I},{N_TotOVL,N_O},SpeCon,Neural_Type,Heredity_Type)->
+	Neuron = #neuron{
 		id = N_Id,
+		type = Neural_Type,
+		heredity_type = Heredity_Type,
 		ivl = N_TotIVL,
 		i = N_I,
 		ovl = N_TotOVL,
 		o = N_O,
-		lt = LearningType,
-		ro = RO,
-		type = Type,
-		dwp = DWP,
+		%lt = LearningType,
+		preprocessor = generate_NeuralPreprocessor(SpeCon#constraint.neural_preprocessors,Neural_Type,N_Id),
+		signal_integrator = generate_NeuralSignalIntegrator(SpeCon#constraint.neural_signal_integrators,Neural_Type,N_Id),
+		activation_function=generate_NeuralAF(SpeCon#constraint.neural_afs,Neural_Type,N_Id),
+		postprocessor = generate_NeuralPostprocessor(SpeCon#constraint.neural_postprocessors,Neural_Type,N_Id),
+		plasticity=generate_NeuralPF(SpeCon#constraint.neural_pfs,Neural_Type,N_Id),
+		ro = calculate_RO(SU_Id,N_Id,N_O,[]),
+		dwp = create_NWP(N_I,[]),
 		su_id = SU_Id,
 		generation = Generation
 	},
+%	io:format("~p~n",[Neuron]),
 	mnesia:write(Neuron).
+		
+	generate_NeuralPF(Available_PFs,NeuralType,N_Id) -> generate_NeuralPF(Available_PFs,NeuralType,N_Id,[]).
+	generate_NeuralPF(Available_PlasticityFunctions,NeuralType,N_Id,Not_PFs)->
+		Available_PFs=case NeuralType of
+			standard ->
+				Available_PlasticityFunctions;
+			layered ->
+				{{LI,UId},neuron} = N_Id,
+				case LI < 0 of
+					true ->
+						[perceptron];
+					false ->
+						[none]
+				end;
+			single_grossberg_layer ->
+				{{LI,UId},neuron} = N_Id,
+				case LI == 0 of
+					true ->
+						[art];
+					false ->
+						[none]
+				end;
+			single_perceptron_layer ->
+				{{LI,UId},neuron} = N_Id,
+				case LI == 0 of
+					true ->
+						[perceptron];
+					false ->
+						[none]
+				end;
+			higher_order ->
+				Available_PlasticityFunctions;
+			_ ->
+				[none]
+			
+		end,
+		case Available_PFs -- Not_PFs of
+			[] ->
+				none;
+			Other ->
+				lists:nth(random:uniform(length(Other)),Other)
+		end.
 	
-	generate_NeuronLT(Adapters,AFs)-> generate_NeuronLT(Adapters,AFs,{void,void}).
-	generate_NeuronLT(Available_Adapters,Available_AFs,{A,AF}) ->
-		Adapter = generate_NeuronPF(Available_Adapters,[A]),
-		ActivationFunction = generate_NeuronAF(Available_AFs,[AF]),
-		{Adapter,ActivationFunction}.
+	generate_NeuralAF(Available_AFs,NeuralType,N_Id)-> generate_NeuralAF(Available_AFs,NeuralType,N_Id,[]).
+	generate_NeuralAF(Available_ActivationFunctions,NeuralType,N_Id,Not_AFs)->
+		Available_AFs=case NeuralType of
+			standard ->
+				Available_ActivationFunctions;
+			layered ->
+				{{LI,UId},neuron} = N_Id,
+				case LI < 0 of
+					true ->
+						[sgn];
+					false ->
+						[tanh]
+				end;
+			single_grossberg_layer ->
+				{{LI,UId},neuron} = N_Id,
+				case LI == 0 of
+					true ->
+						[sgn];
+					false ->
+						[tanh]
+				end;
+			single_perceptron_layer ->
+				{{LI,UId},neuron} = N_Id,
+				case LI == 0 of
+					true ->
+						[sgn];
+					false ->
+						[tanh]
+				end;
+			higher_order ->
+				[tanh];
+			_ ->
+				[tanh]
+			
+		end,
+		case Available_AFs -- Not_AFs of
+			[] ->
+				tanh;
+			Other ->
+				lists:nth(random:uniform(length(Other)),Other)
+		end.
 		
-		generate_NeuronPF(Available_PFs) -> generate_NeuronPF(Available_PFs,[]).
-		generate_NeuronPF(Available_PFs,Not_PFs)->
-			%Adapters = [none], %[none,hebbian,gate]
-			case Available_PFs -- Not_PFs of
-				[] ->
-					none;
-				Other ->
-					lists:nth(random:uniform(length(Other)),Other)
-			end.
-		
-		generate_NeuronAF(Available_AFs)-> generate_NeuronAF(Available_AFs,[]).
-		generate_NeuronAF(Available_AFs,Not_AFs)->
-			Activation_Functions = Available_AFs -- Not_AFs,
-			case Activation_Functions of
-				[] ->
-					tanh;
-				Other ->
-					lists:nth(random:uniform(length(Other)),Other)
-			end.
+	generate_NeuralPreprocessor(Available_Preprocessors,NeuralType,N_Id)-> generate_NeuralPreprocessor(Available_Preprocessors,NeuralType,N_Id,[]).
+	generate_NeuralPreprocessor(Available_Preprocessors,NeuralType,N_Id,Not_Preprocessors)->
+		case Available_Preprocessors -- Not_Preprocessors of
+			[] ->
+				none;
+			Other ->
+				lists:nth(random:uniform(length(Other)),Other)
+		end.
+			
+	generate_NeuralSignalIntegrator(Available_SignalIntegrators,NeuralType,N_Id)->generate_NeuralSignalIntegrator(Available_SignalIntegrators,NeuralType,N_Id,[]).
+	generate_NeuralSignalIntegrator(Available_SignalIntegrators,NeuralType,N_Id,Not_SignalIntegrators)->
+		SigInts=case NeuralType of
+			standard ->
+				Available_SignalIntegrators;
+			layered ->
+				{{LI,UId},neuron} = N_Id,
+				case LI < 0 of
+					true ->
+						[vector_distance];
+					false ->
+						[dot]
+				end;
+			single_grossberg_layer ->
+				{{LI,UId},neuron} = N_Id,
+				case LI == 0 of
+					true ->
+						[within_hypersphere,within_hypercube];
+					false ->
+						[dot]
+				end;
+			single_perceptron_layer ->
+				{{LI,UId},neuron} = N_Id,
+				case LI == 0 of
+					true ->
+						[dot];
+					false ->
+						[dot]
+				end;
+			higher_order ->
+				[pun,higher_order];
+			_ ->
+				[dot]
+			
+		end,
+		case SigInts -- Not_SignalIntegrators of
+			[] ->
+				dot;
+			Other ->
+				lists:nth(random:uniform(length(Other)),Other)
+		end.
+						
+	generate_NeuralPostprocessor(Available_Postprocessors,Type,N_Id)-> generate_NeuralPostprocessor(Available_Postprocessors,Type,N_Id,[]).
+	generate_NeuralPostprocessor(Available_Postprocessors,Type,N_Id,Not_Postprocessors)->
+		case Available_Postprocessors -- Not_Postprocessors of
+			[] ->
+				none;
+			Other ->
+				lists:nth(random:uniform(length(Other)),Other)
+		end.			
+			
 	%{threshold,[{random:uniform()/2 - 0.5,{1,-1,-1000,1000,100},random:uniform()/2 - 0.5}
 	create_NWP([{Id,IVL}|I],NWPAcc)->
 		NWP = {Id,create_Weights(IVL,[])},
@@ -264,7 +393,7 @@ construct_Neuron(SU_Id,Generation,N_Id,{N_TotIVL,N_I},{N_TotOVL,N_O},SpeCon)->
 			create_Weights(IVL-1,[weight_tuple()|WeightsAcc]).
 			
 			weight_tuple()->
-				{random:uniform()/2 - 0.5,0,0}.
+				{random:uniform(),0,0}.
 
 			null_wt()->
 				{1,1,0}.
@@ -318,25 +447,27 @@ update_Stats(DX_Id)->
 	mnesia:write(Updated_DX).
 		
 	find_NN_Summary(N_Ids)->
-		find_NN_Summary(N_Ids,0,0,0,{0,0,0,0,0,0,0,0,0}).
+		find_NN_Summary(N_Ids,0,0,0,{0,0,0,0,0,0,0,0,0,0}).
 	find_NN_Summary([N_Id|N_Ids],ILAcc,OLAcc,ROAcc,FunctionDistribution)->
 		[N] = mnesia:read({neuron,N_Id}),
 		IL_Count = length(N#neuron.i),
 		OL_Count = length(N#neuron.o),
 		RO_Count = length(N#neuron.ro),
-		{_Adaptor,AF} = N#neuron.lt,
+		%{_Adaptor,AF} = N#neuron.lt,
+		AF = N#neuron.activation_function,
 		%%[tanh,gaussian,sin,linear,absolute,sgn,log,sqrt]
-		{TotTanh,TotSin,TotCos,TotGaussian,TotAbsolute,TotSgn,TotLog,TotSqrt,TotLin} = FunctionDistribution,
+		{TotTanh,TotSin,TotCos,TotGaussian,TotAbsolute,TotSgn,TotLog,TotSqrt,TotLin,TotOther} = FunctionDistribution,
 		U_FunctionDistribution= case AF of
-			tanh ->{TotTanh+1,TotSin,TotCos,TotGaussian,TotAbsolute,TotSgn,TotLog,TotSqrt,TotLin};
-			sin ->{TotTanh,TotSin+1,TotCos,TotGaussian,TotAbsolute,TotSgn,TotLog,TotSqrt,TotLin};
-			cos ->{TotTanh,TotSin,TotCos+1,TotGaussian,TotAbsolute,TotSgn,TotLog,TotSqrt,TotLin};
-			gaussian->{TotTanh,TotSin,TotCos,TotGaussian+1,TotAbsolute,TotSgn,TotLog,TotSqrt,TotLin};
-			absolute->{TotTanh,TotSin,TotCos,TotGaussian,TotAbsolute+1,TotSgn,TotLog,TotSqrt,TotLin};
-			sgn ->{TotTanh,TotSin,TotCos,TotGaussian,TotAbsolute,TotSgn+1,TotLog,TotSqrt,TotLin};
-			log ->{TotTanh,TotSin,TotCos,TotGaussian,TotAbsolute,TotSgn,TotLog+1,TotSqrt,TotLin};
-			sqrt ->{TotTanh,TotSin,TotCos,TotGaussian,TotAbsolute,TotSgn,TotLog,TotSqrt+1,TotLin};
-			linear ->{TotTanh,TotSin,TotCos,TotGaussian,TotAbsolute,TotSgn,TotLog,TotSqrt,TotLin+1}
+			tanh ->{TotTanh+1,TotSin,TotCos,TotGaussian,TotAbsolute,TotSgn,TotLog,TotSqrt,TotLin,TotOther};
+			sin ->{TotTanh,TotSin+1,TotCos,TotGaussian,TotAbsolute,TotSgn,TotLog,TotSqrt,TotLin,TotOther};
+			cos ->{TotTanh,TotSin,TotCos+1,TotGaussian,TotAbsolute,TotSgn,TotLog,TotSqrt,TotLin,TotOther};
+			gaussian->{TotTanh,TotSin,TotCos,TotGaussian+1,TotAbsolute,TotSgn,TotLog,TotSqrt,TotLin,TotOther};
+			absolute->{TotTanh,TotSin,TotCos,TotGaussian,TotAbsolute+1,TotSgn,TotLog,TotSqrt,TotLin,TotOther};
+			sgn ->{TotTanh,TotSin,TotCos,TotGaussian,TotAbsolute,TotSgn+1,TotLog,TotSqrt,TotLin,TotOther};
+			log ->{TotTanh,TotSin,TotCos,TotGaussian,TotAbsolute,TotSgn,TotLog+1,TotSqrt,TotLin,TotOther};
+			sqrt ->{TotTanh,TotSin,TotCos,TotGaussian,TotAbsolute,TotSgn,TotLog,TotSqrt+1,TotLin,TotOther};
+			linear ->{TotTanh,TotSin,TotCos,TotGaussian,TotAbsolute,TotSgn,TotLog,TotSqrt,TotLin+1,TotOther};
+			Other ->{TotTanh,TotSin,TotCos,TotGaussian,TotAbsolute,TotSgn,TotLog,TotSqrt,TotLin+1,TotOther+1}
 		end,
 		find_NN_Summary(N_Ids,IL_Count+ILAcc,OL_Count+OLAcc,RO_Count+ROAcc,U_FunctionDistribution);
 	find_NN_Summary([],ILAcc,OLAcc,ROAcc,FunctionDistribution)->
@@ -344,7 +475,7 @@ update_Stats(DX_Id)->
 
 reset_fitness(DX_Id)->
 	[DX] = mnesia:read({dx,DX_Id}),
-	mnesia:write(DX#dx{fitness=undefined}).
+	mnesia:write(DX#dx{fitness=undefined,main_fitness=undefined}).
 	
 construct_FitnessProfile(DX,Fitness)->
 	%[DX] = mnesia:dirty_read({dx,DX_Id}),

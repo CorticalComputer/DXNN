@@ -11,7 +11,31 @@
 %-define(DELTA_MULTIPLIER,math:pi()).
 -define(SAT_LIMIT,math:pi()).
 -define(RO_SIGNAL,0).%(random:uniform()-0.5)*2).
-%-record(state, {exoself,id,su_id,i,im,i_acc,o,om,lt,dwp,dwpm,ro}).
+-record(state, {
+	exoself,
+	id,
+	su_id,
+	heredity_type,
+	i,
+	ivl,
+	o,
+	ovl,
+	ro,
+	si_dwp_bl,
+	si_dwp_current,
+	si_dwp_backup,
+	mi_dwp_bl,
+	mi_dwp_current,
+	mi_dwp_backup,
+	parameters,
+	preprocessor,
+	signal_integrator,
+	activation_function,
+	postprocessor,
+	plasticity,
+	mlffnn_module,
+	neural_type
+}).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 gen(ExoSelf,Node) ->
 	PId = spawn(Node,neuron,prep,[ExoSelf]),
@@ -25,72 +49,182 @@ prep(ExoSelf)->
 		{ExoSelf,init,InitState}->
 			%State = {self(),N_Id,SU_Id,TotIVL,I_PIds,TotOVL,O_PIds,LearningType,RO_PIds,NDWP}
 			%io:format("Neuron:Prep:: InitState:~p~n",[InitState]),
-			{ExoSelf,Neuron_Id,SU_Id,_TotIVL,I,_TotOVL,O,LT,RO,DWP} = InitState,
+			{ExoSelf,Neuron_Id,SU_Id,IVL,I,OVL,O,RO,DWP,Parameters,PreProcessors,SignalIntegrator,ActivationFunction,PostProcessor,Plasticity,MLFFNN_Module,Neural_Type,Heredity_Type} = InitState,
 			fanout(RO,{self(),forward,[?RO_SIGNAL]}),%lists:duplicate(TotOVL,0)}),
-			neuron:neuron(ExoSelf,Neuron_Id,SU_Id,{I,I},[],{O,O},LT,{DWP,DWP},RO)
+			S = #state{
+				exoself=ExoSelf,
+				id=Neuron_Id,
+				su_id=SU_Id,
+				i=I,
+				ivl=IVL,
+				o=O,
+				ovl=OVL,
+				ro=RO,
+				si_dwp_current=DWP,
+				si_dwp_bl=DWP,
+				si_dwp_backup=DWP,
+				parameters=Parameters,
+				preprocessor=PreProcessors,
+				signal_integrator=SignalIntegrator,
+				activation_function=ActivationFunction,
+				postprocessor=PostProcessor,
+				plasticity=Plasticity,
+				mlffnn_module=MLFFNN_Module,
+				neural_type = Neural_Type,
+				heredity_type = Heredity_Type
+			},
+			%io:format("S:~p~n",[S]),
+			neuron:neuron(S,I,[])
 	end.
 
-neuron(ExoSelf,Neuron_Id,SU_Id,{[{IPid,_IVL}|I],IM},IAcc,{[OPid|O],OM},LT,{DWP,DWPM},RO)->
+neuron(S,[{IPid,_IVL}|I],IAcc)->
 	receive
+%		Msg ->
+%			io:format("Msg:~p~n",[Msg]),
+%			neuron(S,I,IAcc);
 		{IPid,forward,Input}->
 			%io:format("IPid:~p Input:~p~n",[IPid,Input]),
-			neuron:neuron(ExoSelf,Neuron_Id,SU_Id,{I,IM},[{IPid,Input}|IAcc],{[OPid|O],OM},LT,{DWP,DWPM},RO);
+			neuron:neuron(S,I,[{IPid,Input}|IAcc]);
 		{_From,gt,weight_mutate,DMultiplier}->
-			{Adapter,_AF} = LT,
-			Updated_DWP = case is_list(DWP) of %use type for this, standard vs bst
-				true ->
+			%io:format("weight_mutate~n"),
+			%{Adapter,_AF} = LT,
+			DWP = S#state.si_dwp_backup,
+			case S#state.neural_type of
+				standard ->
 					MutationP = 1/math:sqrt(length(DWP)),%TODO: Find a better way to find the length of DWP, perhaps calculate it once and store.
-					mutate_DWP(DWP,MutationP,DMultiplier,Adapter,[]);
-				false ->
-					{Weight,Bias} = DWP,
-					WLimit = ?SAT_LIMIT,
-					case random:uniform(2) of
-						1 ->
-							Mutated_Weight = functions:sat(Weight + (random:uniform()-0.5)*DMultiplier,WLimit,-WLimit),
-							{Mutated_Weight,Bias};
-						2 ->
-							Mutated_Weight = functions:sat(Weight + (random:uniform()-0.5)*DMultiplier,WLimit,-WLimit),
-							Mutated_Bias = functions:sat(Bias + (random:uniform()-0.5)*DMultiplier,WLimit,-WLimit),
-							{Mutated_Weight,Mutated_Bias}
-					end
-			end,
-%			io:format("Mutating DWP:~p to Updated_DW:~p~n",[DWP,Updated_DWP]),
-			neuron:neuron(ExoSelf,Neuron_Id,SU_Id,{[{IPid,_IVL}|I],IM},IAcc,{[OPid|O],OM},LT,{Updated_DWP,DWPM},RO);
+					Perturbed_DWP=perturb_DWP(DWP,MutationP,DMultiplier,[]);
+%					io:format("Mutating DWP:~p to Updated_DW:~p~n",[DWP,Updated_DWP]),
+				modular ->
+					Perturbed_DWP=modular_perturb_(DWP,DMultiplier,[])
+			end,	
+			U_S=S#state{
+				si_dwp_bl=Perturbed_DWP,
+				si_dwp_current=Perturbed_DWP
+				%mi_pidps_current=Perturbed_MIPIdPs
+			},
+			neuron:neuron(U_S,[{IPid,_IVL}|I],IAcc);
+		
+		
+%		{ExoSelf_PId,weight_perturb,Spread}->
+%			Perturbed_SIPIdPs=perturb_IPIdPs(Spread,S#state.si_pidps_backup),
+%			Perturbed_MIPIdPs=perturb_IPIdPs(Spread,S#state.mi_pidps_backup),
+%			U_S=S#state{
+%				si_pidps_bl=Perturbed_SIPIdPs,
+%				si_pidps_current=Perturbed_SIPIdPs,
+%				mi_pidps_current=Perturbed_MIPIdPs
+%			},
+%			loop(U_S,ExoSelf_PId,[SI_PId|SI_PIds],[MI_PId|MI_PIds],SIAcc,MIAcc);		
+%		{ExoSelf_PId,weight_backup}->
+%			U_S=case S#state.heredity_type of
+%				darwinian ->
+%					S#state{
+%						si_dwp_backup=S#state.si_dwp_bl,
+%						mi_dwp_backup=S#state.mi_dwp_current
+%					};
+%				lamarckian ->
+%					S#state{
+%						si_dwp_backup=S#state.si_dwp_current,
+%						mi_dwp_backup=S#state.mi_dwp_current
+%					}
+%			end,
+%			loop(U_S,ExoSelf_PId,[SI_PId|SI_PIds],[MI_PId|MI_PIds],SIAcc,MIAcc);
+%		{ExoSelf_PId,weight_restore}->
+%			U_S = S#state{
+%				si_pidps_bl=S#state.si_pidps_backup,
+%				si_pidps_current=S#state.si_pidps_backup,
+%				mi_pidps_current=S#state.mi_pidps_backup
+%			},
+%			loop(U_S,ExoSelf_PId,[SI_PId|SI_PIds],[MI_PId|MI_PIds],SIAcc,MIAcc);
+		
+		
 		{_From,gt,weight_save}->
-			WS_DWP = case LT of
-				{modulated,_} ->%TODO, what's the point of keeping old W and changing W2 and W3? Might as well have full lamarkian.
-					reload_DWP(DWP,DWPM,[]);
-				_ ->
-					DWP
+			%io:format("weight_save~n"),
+			U_S=case S#state.heredity_type of
+				darwinian ->
+					S#state{
+						si_dwp_backup=S#state.si_dwp_bl
+						%mi_dwp_backup=S#state.mi_dwp_current
+					};
+				lamarckian ->
+					S#state{
+						si_dwp_backup=S#state.si_dwp_current
+						%mi_dwp_backup=S#state.mi_dwp_current
+					}
 			end,
-			neuron:neuron(ExoSelf,Neuron_Id,SU_Id,{[{IPid,_IVL}|I],IM},IAcc,{[OPid|O],OM},LT,{WS_DWP,WS_DWP},RO);
+			neuron:neuron(U_S,[{IPid,_IVL}|I],IAcc);
 		{_From,gt,weight_revert}->
+			%io:format("weight_revert~n"),
 			%io:format("Curr_State:~p, Prev_State:~p~n",[LT,Reverted_LT]),
 			%io:format("Reverting to DWPM:~p~n",[DWPM]),
-			neuron:neuron(ExoSelf,Neuron_Id,SU_Id,{[{IPid,_IVL}|I],IM},IAcc,{[OPid|O],OM},LT,{DWPM,DWPM},RO);
+			U_S = S#state{
+				si_dwp_bl=S#state.si_dwp_backup,
+				si_dwp_current=S#state.si_dwp_backup
+				%mi_dwp_current=S#state.mi_dwp_backup
+			},
+			neuron:neuron(U_S,[{IPid,_IVL}|I],IAcc);
 		{ExoSelf,memory_reset}->
-			neuron:flush_buffer(Neuron_Id),
+			%io:format("memory_reset~n"),
+			neuron:flush_buffer(),
 			ExoSelf ! {self(),ready},
 			receive 
 				{ExoSelf, reset}->
-					fanout(RO,{self(),forward,[?RO_SIGNAL]})
+					fanout(S#state.ro,{self(),forward,[?RO_SIGNAL]})
 			end,
 %			io:format("N_Id:~p reseting~n",[Neuron_Id]),
-			neuron:neuron(ExoSelf,Neuron_Id,SU_Id,{IM,IM},[],{OM,OM},LT,{DWP,DWPM},RO);
+			neuron:neuron(S,S#state.i,[]);
 		{ExoSelf,get_backup}->
-			ExoSelf ! {self(),backup,{IM,OM,RO,LT,DWPM}},
-			neuron:neuron(ExoSelf,Neuron_Id,SU_Id,{[{IPid,_IVL}|I],IM},IAcc,{[OPid|O],OM},LT,{DWP,DWPM},RO);
+			%io:format("get_backup~n"),
+			ExoSelf ! {self(),backup,{S#state.i,S#state.o,S#state.ro,S#state.si_dwp_backup}},
+			neuron:neuron(S,[{IPid,_IVL}|I],IAcc);
 		{ExoSelf,terminate}->
+			%io:format("terminate~n"),
 %			io:format("terminate:~p DWP:~p~n",[Neuron_Id,DWP]),
 			done
 		%after 10000 ->
 			%io:format("NeuronStuck:~p~n",[{ExoSelf,Neuron_Id,{[{IPid,_IVL}|I],IM},IAcc,{[OPid|O],OM},LT,EF,DWP,RO}])
 	end;
-neuron(ExoSelf,Neuron_Id,SU_Id,{[],IM},IAcc,{O,OM},LT,{DWP,DWPM},RO)->
+neuron(S,[],IAcc)->
 	DIV = lists:reverse(IAcc),	
-	Updated_DWP = feedforward(LT,DIV,DWP,O),
-	neuron:neuron(ExoSelf,Neuron_Id,SU_Id,{IM,IM},[],{O,OM},LT,{Updated_DWP,DWPM},RO).
-
+	WeightsP = S#state.si_dwp_current,
+	%io:format("DIV:~p~n WeightsP:~p~n",[DIV,WeightsP]),
+	PreProc = S#state.preprocessor,
+	SigInt = S#state.signal_integrator,
+	AF = S#state.activation_function,
+	PostProc = S#state.postprocessor,
+	Plasticity = S#state.plasticity,
+	case S#state.neural_type of
+		standard ->
+			Out = postprocessor:PostProc(functions:AF(signal_integrator:SigInt(preprocessor:PreProc(DIV),WeightsP))),
+			Output=functions:sat(Out,1,-1),
+			fanout(S#state.o,{self(),forward,[Output]});
+		modular ->
+			Out = neuron:modular(DIV,WeightsP),
+			Output=functions:sat(Out,1,-1),
+			fanout(S#state.o,{self(),forward,[Output]})			
+		%hebbian ->
+		%	Out = postprocessor:none(activation_function:AF(signal_integrator:SigInt(preprocessor:PreProc(Input),Weights))),
+		%	Output=functions:sat(Out,1,-1),
+		%	fanout(O,{self(),forward,[Output]});
+		%perceptron ->
+		%	void;
+		%grossberg ->
+		%	void;
+		%general ->
+		%	Out = postprocessor:PostProc(activation_function:AF(signal_integrator:SigInt(preprocessor:PreProc(Input),Weights))),
+		%	Output=functions:sat(Out,1,-1),
+		%	fanout(O,{self(),forward,[Output]})
+	end,
+	U_DWP = plasticity:Plasticity(DIV,Output,WeightsP),
+	U_S=S#state{si_dwp_current=U_DWP},
+	neuron:neuron(U_S,U_S#state.i,[]).
+	
+	modular(DIV,Module)->
+		%[[{AF,Weights}...{AF,Weights}],[...],[{AF,Weights}]],
+		[{AF1,Weights1},{AF2,Weights2},{AF3,Weights3}] = Module,
+		Out1 = functions:AF1(signal_integrator:dot(DIV,Weights1)),
+		Out2 = functions:AF2(signal_integrator:dot(DIV,Weights1)),
+		
+	
 %%==================================================================== Internal Functions
 fanout([Pid|Pids],Msg)->
 	Pid ! Msg,
@@ -98,105 +232,44 @@ fanout([Pid|Pids],Msg)->
 fanout([],_Msg)->
 	true.
 
-flush_buffer(Neuron_Id)->
+flush_buffer()->
 	receive 
-		ANY -> %io:format("ANY:~p~n",[{ANY,self(),Neuron_Id}]),
-		flush_buffer(Neuron_Id)
+		_ANY -> %io:format("ANY:~p self():~p~n",[ANY,self()]),
+		flush_buffer()
 	after 0 ->
 		done
 end.
 
-mutate_DWP([{Key,WPC}|DWP],MutationP,DMultiplier,Adapter,Acc)->
+perturb_DWP([{Key,WPC}|DWP],MutationP,DMultiplier,Acc)->
 	U_WPC = case random:uniform() < MutationP of
 		true ->
 			MP = 1/math:sqrt(length(WPC)),
-			mutate_WPC(WPC,MP,DMultiplier,Adapter,[]);
+			perturb_WPC(WPC,MP,DMultiplier,[]);
 		false ->
 			WPC
 	end,
-	mutate_DWP(DWP,MutationP,DMultiplier,Adapter,[{Key,U_WPC}|Acc]);
-mutate_DWP([],_MutationP,_DMultiplier,_Adapter,Acc)->
+	perturb_DWP(DWP,MutationP,DMultiplier,[{Key,U_WPC}|Acc]);
+perturb_DWP([],_MutationP,_DMultiplier,Acc)->
 	lists:reverse(Acc).
 
-	mutate_WPC([{W,W1,W2}|WPC],MutationP,DMultiplier,Adapter,Acc)->
-		{M_W,M_W1,M_W2} = case Adapter of
-			modulated ->
-				case random:uniform() < 0.5 of
-					true ->
-						{W,mutate_W(W1,MutationP,DMultiplier),W2};
-					false ->
-						{W,W1,mutate_W(W2,MutationP,DMultiplier)}
-				end;
-			_ ->
-				{mutate_W(W,MutationP,DMultiplier),W1,W2}
-		end,
-		mutate_WPC(WPC,MutationP,DMultiplier,Adapter,[{M_W,M_W1,M_W2}|Acc]);
-	mutate_WPC([],_MutationP,_DMultiplier,_Adapter,Acc)->
+	perturb_WPC([{W,W1,W2}|WPC],MutationP,DMultiplier,Acc)->
+		{M_W,M_W1,M_W2} = {perturb_W(W,MutationP,DMultiplier),W1,W2},
+		perturb_WPC(WPC,MutationP,DMultiplier,[{M_W,M_W1,M_W2}|Acc]);
+	perturb_WPC([],_MutationP,_DMultiplier,Acc)->
 		lists:reverse(Acc).
 		
-		mutate_W(W,MutationP,DMultiplier)->
+		perturb_W(W,MutationP,DMultiplier)->
 			%DMultiplier = ?DELTA_MULTIPLIER,
 			WLimit = ?SAT_LIMIT,
 			case random:uniform() < MutationP of
 				true ->
-					functions:sat(W + (random:uniform()-0.5)*DMultiplier,WLimit,-WLimit);
+					DW = (random:uniform()-0.5)*DMultiplier,
+					%io:format("DW:~p~n",[DW]),
+					functions:sat(W + DW,WLimit,-WLimit);
 				false ->
 					W
 			end.
-		
-feedforward(LT,DIV,DWP,O)->
-	%Normalizer = calculate_standardizer(DIV,0),
-	%Input_Normalizer = calculate_normalizer(DIV,0),
-	%Normalized_DIV = normalize_DIV(Input_Normalizer,DIV,[]),
-	%{Adapter,ActivationFunction} = LT,
-	{Adapter,AF} = LT,
-	Output = learning_types:calculate_Output(DWP,DIV,AF),
-	fanout(O,{self(),forward,[Output]}),
-	Updated_DWP = learning_types:learn(Adapter,DWP,DIV,Output),
-	Updated_DWP.
-	
-	normalize_DIV(Normalizer,[{Pid,Input}|DIV],NDIVAcc)->
-		normalize_DIV(Normalizer,DIV,[{Pid,[I/Normalizer||I<-Input]}|NDIVAcc]);
-	normalize_DIV(_,[],NDIVAcc)->
-		lists:reverse(NDIVAcc).
-	
-	
-	calculate_standardizer([{_,InputCluster}|DIV],StandardizerAcc)->
-		IC_Standardizer = calculate_ICS(InputCluster,0),
-		calculate_standardizer(DIV,IC_Standardizer+StandardizerAcc); %%%Needs to use absolute val.
-	calculate_standardizer([],StandardizerAcc)->
-		case StandardizerAcc of
-			0.0 -> 
-				1;
-			0 ->
-				1;
-			_ -> 
-				StandardizerAcc
-		end.
-		
-		calculate_ICS([Val|InputCluster],ICSAcc)->
-			calculate_ICS(InputCluster,abs(Val)+ICSAcc);
-		calculate_ICS([],ICSAcc)->
-			ICSAcc.
-		
-	calculate_normalizer([{_,InputCluster}|DIV],NormalizerAcc)->
-		IC_Normalizer = calculate_ICN(InputCluster,0),
-		calculate_normalizer(DIV,IC_Normalizer+NormalizerAcc);
-	calculate_normalizer([],NormalizerAcc)->
-		case math:sqrt(NormalizerAcc) of
-			0.0 -> 
-				1;
-			Normalizer -> 
-				Normalizer		
-					
-		end.
-		
-		calculate_ICN([Val|InputCluster],ICNAcc)->
-			%io:format("ICN:~p~n",[{Val,InputCluster,ICNAcc}]),
-			calculate_ICN(InputCluster,Val*Val+ICNAcc);
-		calculate_ICN([],ICNAcc)->
-			ICNAcc.
-			
+
 reload_DWP([{Id,WPC}|DWP],[{Id,WPCM}|DWPM],Acc)->
 	R_WPC = reload_WPC(WPC,WPCM,[]),
 	reload_DWP(DWP,DWPM,[{Id,R_WPC}|Acc]);

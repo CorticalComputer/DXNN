@@ -40,7 +40,7 @@ init(World_Type,Physics,Metabolics)->
 			%io:format("Plants:~p~n",[Plants]),
 			Plants=[scape:create_avatar(plant,plant,gen_id(),{undefined,scape:return_valid(Rocks++FirePits)},respawn,Metabolics)||_<-lists:duplicate(10,1)],
 			Poisons=[scape:create_avatar(poison,poison,gen_id(),{undefined,scape:return_valid(Rocks++FirePits)},respawn,Metabolics)||_<-lists:duplicate(10,1)],
-			Plants++Beacons;%++Rocks++Walls++Poisons++FirePits++Beacons;%++Poisons;%++Walls;
+			Plants;%++Beacons;%++Rocks++Walls++Poisons++FirePits++Beacons;%++Poisons;%++Walls;
 		dynamic ->
 			[];
 		baator ->

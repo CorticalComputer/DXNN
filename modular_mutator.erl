@@ -51,7 +51,7 @@ mos()->?MUTATION_OPERATORS.
 	]).%change_Adapter,change_ActivationFunction,reset_DWP,reset_Neuron]).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Modular_Mutator Parameters %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -define(SCCTTypes,[single,block,block]).%[single,block,all],
--define(HYPERCUBE_CFTAGS,morphology:get_HCF(Cx#cortex.dimensions,Cx#cortex.plasticity)).
+-define(HYPERCUBE_CFTAGS,morphology:get_HCF(Cx#cortex.dimensions,Cx#cortex.plasticity,Cx#cortex.type)).
 -define(HYPERCUBE_CTTAGS,morphology:get_HCT(Cx#cortex.dimensions,Cx#cortex.plasticity)).%TODO: Add standard coordinates
 -define(ACTUATOR_TAGS,morphology:get_Actuators(DX#dx.morphology)).
 -define(SENSOR_TAGS,morphology:get_Sensors(DX#dx.morphology)).
@@ -69,7 +69,15 @@ mutate(DX_Id)->
 	[DX] = mnesia:read({dx,DX_Id}),
 	OldGeneration = DX#dx.generation,
 	NewGeneration = OldGeneration+1,
-	mnesia:write(DX#dx{generation = NewGeneration,evo_strat=agent_evo_strat:mutate(DX#dx.evo_strat)}),
+	mnesia:write(DX#dx{
+		generation = NewGeneration,
+		evo_strat=agent_evo_strat:mutate(DX#dx.evo_strat),
+		brittleness=0,
+		robustness=0,
+		evolutionary_capacitance=0,
+		fitness=undefined,
+		main_fitness=undefined}
+	),
 	[Cx] = mnesia:read({cortex,DX#dx.cx_id}),
 	mnesia:write(Cx#cortex{generation = NewGeneration}),
 	apply_Mutagens(DX_Id,NewGeneration),
@@ -334,6 +342,8 @@ increase_SubstrateResolution(DX_Id,Cx_Id)->
 	case Cx#cortex.type of
 		neural ->
 			exit("******** increase_SubstrateResolution not applicable to Cx#cortex.type == neural~n");
+		aart ->
+			exit("******** increase_SubstrateResolution not applicable to Cx#cortex.type == aart~n");
 		hypercube ->
 			Old_Densities = Cx#cortex.densities,
 			[Old_Depth|Old_SubDensities] = Old_Densities,
@@ -356,6 +366,8 @@ increase_SubstrateDepth(DX_Id,Cx_Id)->
 	case Cx#cortex.type of
 		neural ->
 			exit("******** increase_SubstrateDepth not applicable to Cx#cortex.type == neural~n");
+		aart ->
+			exit("******** increase_SubstrateDepth not applicable to Cx#cortex.type == aart~n");
 		hypercube ->
 			Old_Densities = Cx#cortex.densities,
 			[Old_Depth|Old_SubDensities] = Old_Densities,
@@ -402,6 +414,18 @@ add_SensorLink(DX_Id,Cx_Id)->%TODO We need to eventually make sure that sensor h
 						sensors = [NewSensor|CurrentSensors]
 					}),
 				update_EvoHist(DX_Id,add_SensorLink,NewSensor#sensor.name,Cx_Id,void,void,void)
+			end;
+		aart ->
+			CurrentSensors = Cx#cortex.sensors,
+			case ?SENSOR_TAGS--CurrentSensors of
+				[] ->
+					exit("******** ERROR: No new Sensors to add in add_SensorLink(DX_Id,Cx_Id)~n");
+				AvailableNew_Sensors ->
+					NewSensor = lists:nth(random:uniform(length(AvailableNew_Sensors)),AvailableNew_Sensors),
+					mnesia:write(Cx#cortex{
+						sensors = [NewSensor|CurrentSensors]
+					}),
+				update_EvoHist(DX_Id,add_SensorLink,NewSensor#sensor.name,Cx_Id,void,void,void)
 			end
 	end.
 	
@@ -425,6 +449,18 @@ add_ActuatorLink(DX_Id,Cx_Id)->%TODO in the case of a Neural system, it links to
 			end;
 			%exit("******** ERROR: No Neural type add_Actuator(DX_Id,Cx_Id) exists yet~n");
 		hypercube ->
+			CurrentActuators = Cx#cortex.actuators,
+			case ?ACTUATOR_TAGS--CurrentActuators of
+				[] ->
+					exit("******** ERROR: No new Actuators to add in add_ActuatorLink(DX_Id,Cx_Id)~n");
+				AvailableNew_Actuators ->
+					NewActuator = lists:nth(random:uniform(length(AvailableNew_Actuators)),AvailableNew_Actuators),
+					mnesia:write(Cx#cortex{
+						actuators = [NewActuator|CurrentActuators]
+					}),
+					update_EvoHist(DX_Id,add_ActuatorLink,NewActuator#actuator.name,Cx_Id,void,void,void)
+			end;
+		aart ->
 			CurrentActuators = Cx#cortex.actuators,
 			case ?ACTUATOR_TAGS--CurrentActuators of
 				[] ->
@@ -501,7 +537,7 @@ io:format("neurolink_OutputSplice(DX_Id,Cx_Id)::N_Id~p, O_IdPool:~p~n",[N_Id,O_I
 	[Cx] = mnesia:read({cortex,Cx_Id}),
 	Pattern = Cx#cortex.pattern,
 	CIds = Cx#cortex.cids,
-	technome_constructor:construct_Neuron(Cx_Id,Generation,NewN_Id,{0,[]},{1,[]},get_SpeCon(specie_id,DX#dx.specie_id)),
+	technome_constructor:construct_Neuron(Cx_Id,Generation,NewN_Id,{0,[]},{1,[]},get_SpeCon(specie_id,DX#dx.specie_id),DX#dx.neural_type,DX#dx.heredity_type),
 	U_Pattern = add_UnitToPattern(Pattern,NewLI,[]),
 	mnesia:write(Cx#cortex{
 		pattern = U_Pattern,
@@ -618,7 +654,7 @@ io:format("neurlink_InputSplice(DX_Id,Cx_Id)::N_Id~p, I_IdPool:~p~n",[N_Id,I_IdP
 	[Cx] = mnesia:read({cortex,Cx_Id}),
 	Pattern = Cx#cortex.pattern,
 	CIds = Cx#cortex.cids,
-	technome_constructor:construct_Neuron(Cx_Id,Generation,NewN_Id,{0,[]},{1,[]},get_SpeCon(specie_id,DX#dx.specie_id)),
+	technome_constructor:construct_Neuron(Cx_Id,Generation,NewN_Id,{0,[]},{1,[]},get_SpeCon(specie_id,DX#dx.specie_id),DX#dx.neural_type,DX#dx.heredity_type),
 	U_Pattern = add_UnitToPattern(Pattern,NewLI,[]),
 	mnesia:write(Cx#cortex{
 		pattern = U_Pattern,
@@ -829,6 +865,9 @@ proper_OIds(SU_Id,Id_Pool,PresentIds,Elements_Requested)->
 				?ACTUATOR_TAGS -- InvalidActuators;
 			hypercube ->
 				InvalidTags = [SCF || {SCF,NIds}<-CF, SCF#sCF.tot_vl == length(NIds)],
+				?HYPERCUBE_CFTAGS -- InvalidTags;
+			aart ->
+				InvalidTags = [SCF || {SCF,NIds}<-CF, SCF#sCF.tot_vl == length(NIds)],
 				?HYPERCUBE_CFTAGS -- InvalidTags
 		end,
 		case Flag of
@@ -864,13 +903,20 @@ add_Neuron(DX_Id,Cx_Id,TargetLayer)-> %TODO: Crash/End if in last layer, feed fo
 	Cx_Pattern = Cx#cortex.pattern,
 	Cx_CIds = Cx#cortex.cids,
 	N_Id = {{TargetLayer,technome_constructor:generate_UniqueId()},neuron},
-	technome_constructor:construct_Neuron(Cx_Id,Generation,N_Id,{0,[]},{1,[]},get_SpeCon(specie_id,DX#dx.specie_id)),
+	technome_constructor:construct_Neuron(Cx_Id,Generation,N_Id,{0,[]},{1,[]},get_SpeCon(specie_id,DX#dx.specie_id),DX#dx.neural_type,DX#dx.heredity_type),
 	U_Cx_Pattern = add_UnitToPattern(Cx_Pattern,TargetLayer,[]),
 	mnesia:write(Cx#cortex{
 		pattern = U_Cx_Pattern,
 		cids = [N_Id|Cx_CIds]}),
 	%%%%NEWMETHOD:
-	Link_Form = Cx#cortex.link_form,
+	Link_Form = case Cx#cortex.type of
+		neural ->
+			Cx#cortex.link_form;
+		hypercube ->
+			Cx#cortex.substrate_link_form;
+		aart ->
+			Cx#cortex.substrate_link_form
+	end,
 	Partial_IIdPool = [Cx_Id|filter_LinkType(Link_Form,below,Cx_Id,N_Id,Cx_CIds)],
 	ILinks_Requested = 1,%random:uniform(round(math:sqrt(length(Partial_IIdPool),1/3))),
 	IId_Pool = get_UniqueIds(Partial_IIdPool,ILinks_Requested),
@@ -997,6 +1043,10 @@ link_FromCortexToNeuron(DX_Id,From_CortexId,To_NeuronId)->
 				CTTAGsP_Pool = [{SCT,{block,SCT#sCT.tot_vl}} || SCT <-?HYPERCUBE_CTTAGS],
 				PoolSize = length(CTTAGsP_Pool),
 				CT_TagP = lists:nth(random:uniform(PoolSize),CTTAGsP_Pool);
+			aart ->
+				CTTAGsP_Pool = [{SCT,{block,SCT#sCT.tot_vl}} || SCT <-?HYPERCUBE_CTTAGS],
+				PoolSize = length(CTTAGsP_Pool),
+				CT_TagP = lists:nth(random:uniform(PoolSize),CTTAGsP_Pool);
 			neural ->
 				CTTAGsP_Pool = case lists:nth(random:uniform(length(?SCCTTypes)),?SCCTTypes) of
 					single ->
@@ -1052,6 +1102,9 @@ link_FromNeuronToCortex(DX_Id,From_NeuronId,To_CortexId)->
 				InvalidActuators=[Actuator||{Actuator,NIds} <-Cx#cortex.cf,Actuator#actuator.tot_vl=<length(NIds)], 
 				?ACTUATOR_TAGS -- InvalidActuators;
 			hypercube ->
+				InvalidTags=[CF_Tag||{CF_Tag,NIds} <-Cx#cortex.cf,CF_Tag#sCF.tot_vl=<length(NIds)], 
+				?HYPERCUBE_CFTAGS -- InvalidTags;
+			aart ->
 				InvalidTags=[CF_Tag||{CF_Tag,NIds} <-Cx#cortex.cf,CF_Tag#sCF.tot_vl=<length(NIds)], 
 				?HYPERCUBE_CFTAGS -- InvalidTags
 		end,
@@ -1258,7 +1311,14 @@ remove_Neuron(DX_Id,Cx_Id,N_Id={{TL,_},_})->
 add_INLink(DX_Id,Cx_Id)->
 	[Cx] = mnesia:read({cortex,Cx_Id}),
 	Cx_CIds = Cx#cortex.cids,
-	Link_Form = Cx#cortex.link_form,
+	Link_Form = case Cx#cortex.type of
+		neural ->
+			Cx#cortex.link_form;
+		hypercube ->
+			Cx#cortex.substrate_link_form;
+		aart ->
+			Cx#cortex.substrate_link_form
+	end,
 	N_Id = lists:nth(random:uniform(length(Cx_CIds)),Cx_CIds),
 	[N] = mnesia:read({neuron,N_Id}),
 	Partial_IIdPool = [Cx_Id|filter_LinkType(Link_Form,below,Cx_Id,N_Id,Cx_CIds)],
@@ -1336,7 +1396,14 @@ remove_INeuroLinks(DX_Id,N_Id,RemoveILinks,ProtectionFlag)->
 add_ONLink(DX_Id,Cx_Id)->
 	[Cx] = mnesia:read({cortex,Cx_Id}),
 	Cx_CIds = Cx#cortex.cids,
-	Link_Form = Cx#cortex.link_form,
+	Link_Form = case Cx#cortex.type of
+		neural ->
+			Cx#cortex.link_form;
+		hypercube ->
+			Cx#cortex.substrate_link_form;
+		aart ->
+			Cx#cortex.substrate_link_form
+	end,
 	N_Id = lists:nth(random:uniform(length(Cx_CIds)),Cx_CIds),
 	[N] = mnesia:read({neuron,N_Id}),
 	N_O = N#neuron.o,
@@ -1415,10 +1482,11 @@ change_PlasticityFunction(DX_Id,Cx_Id)->
 	Link_Form = Cx#cortex.link_form,
 	N_Id = lists:nth(random:uniform(length(Cx_CIds)),Cx_CIds),
 	[N] = mnesia:read({neuron,N_Id}),
-	{Old_PF,AF} = N#neuron.lt,
+	%{Old_PF,AF} = N#neuron.lt,
+	Old_PF = N#neuron.plasticity,
 	SpeCon = get_SpeCon(dx_id,DX_Id),
 	New_PF = technome_constructor:generate_NeuronPF(SpeCon#constraint.neural_pfs,[Old_PF]),
-	mnesia:write(N#neuron{lt = {New_PF,AF},generation=Generation}),
+	mnesia:write(N#neuron{plasticity = New_PF,generation=Generation}),
 	update_EvoHist(DX_Id,change_PlasticityFunction,void,N_Id,void,void,New_PF).
 	
 %--------------------------------Change ActivationFunction--------------------------------
@@ -1433,10 +1501,10 @@ change_ActivationFunction(DX_Id,Cx_Id)->
 	Link_Form = Cx#cortex.link_form,
 	N_Id = lists:nth(random:uniform(length(Cx_CIds)),Cx_CIds),
 	[N] = mnesia:read({neuron,N_Id}),
-	{Adapter,Old_AF} = N#neuron.lt,
+	Old_AF = N#neuron.activation_function,
 	SpeCon = get_SpeCon(dx_id,DX_Id),
 	New_AF = technome_constructor:generate_NeuronAF(SpeCon#constraint.neural_afs,[Old_AF]),
-	mnesia:write(N#neuron{lt = {Adapter,New_AF},generation=Generation}),
+	mnesia:write(N#neuron{activation_function =New_AF,generation=Generation}),
 	update_EvoHist(DX_Id,change_ActivationFunction,void,N_Id,void,void,New_AF).
 
 %--------------------------------Reset DWP--------------------------------
@@ -1468,13 +1536,14 @@ reset_Neuron(DX_Id,Cx_Id)->
 	Link_Form = Cx#cortex.link_form,
 	N_Id = lists:nth(random:uniform(length(Cx_CIds)),Cx_CIds),
 	[N] = mnesia:read({neuron,N_Id}),
-	{Old_PF,Old_AF} = N#neuron.lt,
+	Old_AF = N#neuron.activation_function,
+	Old_PF = N#neuron.plasticity,
 	SpeCon = get_SpeCon(dx_id,DX_Id),
 	New_PF = technome_constructor:generate_NeuronPF(SpeCon#constraint.neural_pfs,[Old_PF]),
 	New_AF = technome_constructor:generate_NeuronAF(SpeCon#constraint.neural_afs,[Old_AF]),
 	N_I = N#neuron.i,
 	New_DWP = technome_constructor:create_NWP(N_I,[]),
-	mnesia:write(N#neuron{lt = {New_PF,New_AF},dwp=New_DWP,generation=Generation}),
+	mnesia:write(N#neuron{plasticity=New_PF,activation_function=New_AF,dwp=New_DWP,generation=Generation}),
 	update_EvoHist(DX_Id,reset_Neuron,void,N_Id,void,void,{New_PF,New_AF,New_DWP}).
 
 
