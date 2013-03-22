@@ -4,7 +4,8 @@
 %All rights reserved.
 %
 %This code is licensed under the version 3 of the GNU General Public License. Please see the LICENSE file that accompanies this project for the terms of use.
-
+-define(BEHAVIORAL_TRACE,false).
+-define(INTERACTIVE_SELECTION,false).
 -record(af,{name,parameters,neural_constraints}).
 -record(lt,{name,parameters,neural_constraints}).
 -record(schema,{sensors,actuators}).
@@ -12,13 +13,14 @@
 -record(fingerprint,{cf,ct,constraint,history,tot_subcores,tot_substrates,tot_neurons,subcore_pattern,neuro_patterns}).
 -record(trace,{stats=[],tot_evaluations=0,step_size=500,next_step=500}).
 %-record(stats,{morphology,avg_subcores=[],avg_neurons=[],avg_fitness=[],max_fitness=[],min_fitness=[],avg_diversity=[],evaluations=[],tot_evaluations=0,step_size=500,next_step=500}).
--record(champion,{hof_fingerprint,id,fitness,main_fitness,tot_n,evolvability,robustness,brittleness,generation}).
--record(population,{id,type,trace=#trace{},specie_ids=[],topspecie_ids,polis_id,evo_strat,seed_agent_ids=[],seed_specie_ids=[],hall_of_fame=[],objectives=[fitness],phylogenetic_tree_depth=inf}). %hof:[{FitnessVector,Id}...]
+-record(champion,{hof_fingerprint,id,fitness,main_fitness,tot_n,evolvability,robustness,brittleness,generation,behavioral_differences}).
+-record(population,{id,type,trace=#trace{},specie_ids=[],topspecie_ids,polis_id,evo_strat,seed_agent_ids=[],seed_specie_ids=[],objectives=[fitness],phylogenetic_tree_depth=inf}). %hof:[{FitnessVector,Id}...]
 -record(specie,{id,morphology,constraint,fingerprint,trace=#trace{},cur_stat,avg_fitness,stagnation_factor,dx_ids=[],dead_pool=[],population_id,seed_agent_ids=[],hof_distinguishers=[tot_n],specie_distinguishers=[tot_n],hall_of_fame=[]}).
--record(dx,{id,cx_id,n_ids,specie_id,constraint,morphology,heredity_type,neural_type,generation,fitness,main_fitness,profile,summary,evo_hist,mode,evo_strat,offspring_ids=[],parent_ids=[],champion_flag=[false],evolvability=0,brittleness=0,robustness=0, evolutionary_capacitance=0,phenotype=[]}).
+-record(dx,{id,cx_id,n_ids,specie_id,constraint,morphology,heredity_type,neural_type,generation,fitness,main_fitness,profile,summary,evo_hist,mode,evo_strat,offspring_ids=[],parent_ids=[],champion_flag=[false],evolvability=0,brittleness=0,robustness=0, evolutionary_capacitance=0,behavioral_trace}).
 -record(cortex,{id,sensors,actuators,cf,ct,type,plasticity,pattern,cids,su_id,link_form,substrate_link_form,dimensions,densities,categories=[],generation}). %%%id = {{LayerIndex,NumId},subcore}
 -record(subcore,{id,i,o,cf,ct,type,plasticity,pattern,cids,su_id,link_form,dimensions,densities,generation}).
--record(neuron,{id,ivl,i,ovl,o,ro,type,dwp,su_id,generation,parameters=[],preprocessor,signal_integrator,activation_function,postprocessor,plasticity,heredity_type,mlffnn_module=[]}). %%%id = {{LayerIndex,NumId},neuron}
+-record(neuron,{id,ivl,i,ovl,o,ro,type,dwp,su_id,generation,parameters=[],preprocessor,signal_integrator,activation_function,postprocessor,plasticity,heredity_type,mlffnn_module}). %%%id = {{LayerIndex,NumId},neuron}
+-record(neurode,{id,weights,af,bias,parameters=[]}).
 %-record(hall_of_fame,{id,identifier,fitness}).%id={population_id,agent_id}
 %-record(citizen,{id,dx_id,fitness,fitness_profile,specie_id}).
 -record(summary,{type,tot_neurons,tot_n_ils,tot_n_ols,tot_n_ros,af_distribution,fitness}).
@@ -61,7 +63,7 @@
 	neural_postprocessors = [none],
 	specie_distinguishers=[tot_n],%[tot_n,tot_inlinks,tot_outlinks,tot_sensors,tot_actuators,pattern,tot_tanh,tot_sin,tot_cos,tot_gaus,tot_lin...]
 	hof_distinguishers=[tot_n],%[tot_n,tot_inlinks,tot_outlinks,tot_sensors,tot_actuators,pattern,tot_tanh,tot_sin,tot_cos,tot_gaus,tot_lin...]
-	objectives = [main_fitness,tot_n] %[main_fitness,problem_specific_fitness,other_optimization_factors...]
+	objectives = [main_fitness,inverse_tot_n] %[main_fitness,problem_specific_fitness,other_optimization_factors...]
 }).
 
 -record(hall_of_fame,{fitness,agents}).

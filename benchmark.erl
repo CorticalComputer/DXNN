@@ -18,8 +18,9 @@
 -define(DEFAULT_OPMODE,gt).
 -define(EVOLUTION_TYPE,generational).
 -define(SELECTION_TYPE,hof_competition).
+-define(FAST_TABLE_CLEAR,false).
 %-define(INIT_CONSTRAINTS,[#constraint{morphology=Morphology,sc_types=SC_Types, sc_hypercube_plasticity=[none], sc_neural_linkform=LinkForm, neural_afs = [tanh]}|| Morphology<-[pole2_balancing3],LinkForm<-[recursive], SC_Types<-[[neural]]]).
--define(INIT_CONSTRAINTS,[#constraint{morphology=Morphology,sc_types=SC_Types, sc_hypercube_plasticity=[none], sc_neural_linkform=LinkForm, neural_afs =[tanh], neural_signal_integrators = [dot], neural_types=[standard], sc_neural_plasticity=[none], sc_hypercube_linkform = Substrate_LinkForm} || Morphology<-[pole2_balancing3],Substrate_LinkForm <- [[feedforward]], LinkForm<-[recursive],SC_Types<-[[neural]]]).
+-define(INIT_CONSTRAINTS,[#constraint{morphology=Morphology,sc_types=SC_Types, sc_hypercube_plasticity=[none], sc_neural_linkform=LinkForm, neural_afs =[tanh], neural_signal_integrators = [dot], neural_types=[circuit], sc_neural_plasticity=[none], sc_hypercube_linkform = Substrate_LinkForm} || Morphology<-[pole2_balancing3],Substrate_LinkForm <- [[feedforward]], LinkForm<-[recursive],SC_Types<-[[neural]]]).
 %-record(state,{pm_parameters,table_name,run_index=1,tot_evaluations=0,tot_generations=0,goal_status,tunning_status,success_acc=[],failure_acc=[],diversity_acc=[],trace_acc=[]}).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %Starts and ends Neural Networks with various preset parameters and options, and polls the logger for information about each run.
@@ -58,7 +59,7 @@ start(Id)->
 %		init_constraints=?INIT_CONSTRAINTS,
 		progress_flag=in_progress,
 		run_index=1,
-		tot_runs=100,
+		tot_runs=1000,
 		started={date(),time()},
 		interruptions=[]
 	},
@@ -94,6 +95,13 @@ prep(E)->
 	Population_Id = PMP#pmp.population_id,
 	population_monitor:init_population(U_PMP),
 	benchmark:loop(E,Population_Id).
+
+clear_tables()->
+	{atomic,ok} = mnesia:clear_table(dx),
+	{atomic,ok} = mnesia:clear_table(cortex),
+	{atomic,ok} = mnesia:clear_table(neuron),
+	{atomic,ok} = mnesia:clear_table(population),
+	{atomic,ok} = mnesia:clear_table(specie).
 	
 loop(E,P_Id)->
 	receive	
@@ -114,7 +122,7 @@ loop(E,P_Id)->
 						true ->
 							io:format("E:~p~n",[U_E]),
 							Traces = U_E#experiment.trace_acc,
-							BestGen_Champions = [get_best(Trace) || Trace <- Traces],
+							BestGen_Champions = [get_best(T) || T <- Traces],
 							io:format("Best validation champions per evolutionary run:~p~n",[BestGen_Champions]),
 							[{BOTB_F,BOTB_Id}|_] = lists:reverse(lists:sort(BestGen_Champions)),
 							io:format("BOTB:~p~n",[{BOTB_F,BOTB_Id}]),
@@ -141,6 +149,10 @@ loop(E,P_Id)->
 					Constraints = E#experiment.init_constraints,
 					Population_Id = PMP#pmp.population_id,
 					%population_monitor:prep_PopState(U_PMP,Constraints),
+					case ?FAST_TABLE_CLEAR of
+						true -> clear_tables();
+						false -> ok
+					end,
 					population_monitor:init_population(U_PMP),
 					
 					io:format("****Experiment:~p/~p completed.****~n",[E#experiment.run_index,E#experiment.tot_runs]),
@@ -216,8 +228,8 @@ report(Experiment_Id,FileName)->
 	Eval_List = [T#trace.tot_evaluations||T<-Traces],
 	io:format("Tot Evaluations Avg:~p Std:~p~n",[functions:avg(Eval_List),functions:std(Eval_List)]).
 
--record(graph,{morphology,avg_neurons=[],neurons_std=[],avg_fitness=[],fitness_std=[],max_fitness=[],min_fitness=[],maxavg_fitness=[],minavg_fitness=[],avg_diversity=[],diversity_std=[],evaluations=[],validation_fitness=[],validationmax_fitness=[],validationmin_fitness=[],evaluation_Index=[]}).
--record(avg,{avg_neurons=[],neurons_std=[],avg_fitness=[],fitness_std=[],max_fitness=[],min_fitness=[],maxavg_fitness,minavg_fitness,avg_diversity=[],diversity_std=[],evaluations=[],validation_fitness=[],validationmax_fitness=[],validationmin_fitness=[]}).
+-record(graph,{morphology,avg_neurons=[],neurons_std=[],avg_fitness=[],fitness_std=[],max_fitness=[],min_fitness=[],maxavg_fitness=[],maxavg_fitness_std=[],minavg_fitness=[],avg_diversity=[],diversity_std=[],evaluations=[],validation_fitness=[],validation_fitness_std=[],validationmax_fitness=[],validationmin_fitness=[],evaluation_Index=[]}).
+-record(avg,{avg_neurons=[],neurons_std=[],avg_fitness=[],fitness_std=[],max_fitness=[],min_fitness=[],maxavg_fitness,maxavg_fitness_std=[],minavg_fitness,avg_diversity=[],diversity_std=[],evaluations=[],validation_fitness=[],validation_fitness_std=[],validationmax_fitness=[],validationmin_fitness=[]}).
 %-record(stat,{avg_subcores,subcores_std,avg_neurons,neurons_std,avg_fitness,fitness_std,max_fitness,min_fitness,avg_diversity,evaluations,time_stamp}).
 
 prepare_Graphs(Traces)->
@@ -261,9 +273,11 @@ prepare_Graphs(Traces)->
 					max_fitness = [Avg#avg.max_fitness|Graph#graph.max_fitness],
 					min_fitness = [Avg#avg.min_fitness|Graph#graph.min_fitness],
 					maxavg_fitness = [Avg#avg.maxavg_fitness|Graph#graph.maxavg_fitness],
+					maxavg_fitness_std = [Avg#avg.maxavg_fitness_std|Graph#graph.maxavg_fitness_std],
 					minavg_fitness = [Avg#avg.minavg_fitness|Graph#graph.minavg_fitness],
 					evaluations = [Avg#avg.evaluations|Graph#graph.evaluations],
 					validation_fitness = [Avg#avg.validation_fitness|Graph#graph.validation_fitness],
+					validation_fitness_std = [Avg#avg.validation_fitness_std|Graph#graph.validation_fitness_std],
 					validationmax_fitness = [Avg#avg.validationmax_fitness|Graph#graph.validationmax_fitness],
 					validationmin_fitness = [Avg#avg.validationmin_fitness|Graph#graph.validationmin_fitness],
 					avg_diversity = [Avg#avg.avg_diversity|Graph#graph.avg_diversity],
@@ -279,8 +293,12 @@ prepare_Graphs(Traces)->
 					fitness_std = lists:reverse(Graph#graph.fitness_std),
 					max_fitness = lists:reverse(Graph#graph.max_fitness),
 					min_fitness = lists:reverse(Graph#graph.min_fitness),
+					maxavg_fitness = lists:reverse(Graph#graph.maxavg_fitness),
+					maxavg_fitness_std = lists:reverse(Graph#graph.maxavg_fitness_std),
+					minavg_fitness = lists:reverse(Graph#graph.minavg_fitness),
 					evaluations = lists:reverse(Graph#graph.evaluations),
 					validation_fitness = lists:reverse(Graph#graph.validation_fitness),
+					validation_fitness_std = lists:reverse(Graph#graph.validation_fitness_std),
 					validationmax_fitness = lists:reverse(Graph#graph.validationmax_fitness),
 					validationmin_fitness = lists:reverse(Graph#graph.validationmin_fitness),
 					avg_diversity = lists:reverse(Graph#graph.avg_diversity),
@@ -313,9 +331,11 @@ prepare_Graphs(Traces)->
 						max_fitness=[lists:max(Val)||Val<-Avg#avg.max_fitness],
 						min_fitness=[lists:min(Val)||Val<-Avg#avg.min_fitness],
 						maxavg_fitness=[functions:avg(Val)||Val<-Avg#avg.max_fitness],
+						maxavg_fitness_std=[functions:std(Val)||Val<-Avg#avg.max_fitness],
 						minavg_fitness=[functions:avg(Val)||Val<-Avg#avg.min_fitness],
 						evaluations=functions:avg(Avg#avg.evaluations),
 						validation_fitness=[functions:avg(Val)||Val<-Avg#avg.validation_fitness],
+						validation_fitness_std=[functions:std(Val)||Val<-Avg#avg.validation_fitness],
 						validationmax_fitness=[lists:max(Val)||Val<-Avg#avg.validation_fitness],
 						validationmin_fitness=[lists:min(Val)||Val<-Avg#avg.validation_fitness],
 						avg_diversity=functions:avg(Avg#avg.avg_diversity),
@@ -355,9 +375,18 @@ write_Graphs([G|Graphs],Graph_Postfix)->
 	io:format(File,"~n~n#Avg Diversity Vs Evaluations, Morphology:~p~n",[Morphology]),
 	lists:foreach(fun({X,Y,Std}) -> io:format(File, "~p ~p ~p~n",[X,Y,Std]) end, lists:zip3(U_G#graph.evaluation_Index,U_G#graph.avg_diversity,U_G#graph.diversity_std)),
 	
-	io:format(File,"~n~n#Avg. Max Fitness Vs Evaluations, Morphology:~p",[Morphology]),
+	io:format(File,"~n~n# Max Fitness Vs Evaluations, Morphology:~p",[Morphology]),
 	%lists:foreach(fun({X,Y}) -> io:format(File, "~p ~p~n",[X,Y]) end, lists:zip(U_G#graph.evaluation_Index,U_G#graph.max_fitness)),
 	print_MultiObjectiveFitness(File,U_G#graph.evaluation_Index,U_G#graph.max_fitness),
+
+	io:format(File,"~n~n#Avg. Max Fitness Vs Evaluations, Morphology:~p",[Morphology]),
+	%lists:foreach(fun({X,Y}) -> io:format(File, "~p ~p~n",[X,Y]) end, lists:zip(U_G#graph.evaluation_Index,U_G#graph.max_fitness)),
+	print_MultiObjectiveFitness(File,U_G#graph.evaluation_Index,U_G#graph.maxavg_fitness),
+
+	io:format(File,"~n~n#Avg. Max Fitness Vs Evaluations, Morphology:~p~n",[Morphology]),
+	%lists:foreach(fun({X,Y}) -> io:format(File, "~p ~p~n",[X,Y]) end, lists:zip(U_G#graph.evaluation_Index,U_G#graph.max_fitness)),
+	%print_MultiObjectiveFitness(File,U_G#graph.evaluation_Index,U_G#graph.maxavg_fitness),
+	lists:foreach(fun({X,[Y],[Std]}) -> io:format(File, "~p ~p ~p~n",[X,Y,Std]) end, lists:zip3(U_G#graph.evaluation_Index,U_G#graph.maxavg_fitness,U_G#graph.maxavg_fitness_std)),
 	
 	io:format(File,"~n~n~n#Avg. Min Fitness Vs Evaluations, Morphology:~p",[Morphology]),
 	%lists:foreach(fun({X,Y}) -> io:format(File, "~p ~p~n",[X,Y]) end, lists:zip(U_G#graph.evaluation_Index,U_G#graph.min_fitness)),
@@ -366,9 +395,10 @@ write_Graphs([G|Graphs],Graph_Postfix)->
 	io:format(File,"~n~n~n#Specie-Population Turnover Vs Evaluations, Morphology:~p~n",[Morphology]),
 	lists:foreach(fun({X,Y}) -> io:format(File, "~p ~p~n",[X,Y]) end, lists:zip(U_G#graph.evaluation_Index,U_G#graph.evaluations)),
 	
-	io:format(File,"~n~n#Validation Avg Fitness Vs Evaluations, Morphology:~p",[Morphology]),
+	io:format(File,"~n~n#Validation Avg Fitness Vs Evaluations, Morphology:~p~n",[Morphology]),
 	%lists:foreach(fun({X,Y}) -> io:format(File, "~p ~p~n",[X,Y]) end, lists:zip(U_G#graph.evaluation_Index,U_G#graph.validation_fitness)),
-	print_MultiObjectiveFitness(File,U_G#graph.evaluation_Index,U_G#graph.validation_fitness),
+	lists:foreach(fun({X,[Y],[Std]}) -> io:format(File, "~p ~p ~p~n",[X,Y,Std]) end, lists:zip3(U_G#graph.evaluation_Index,U_G#graph.validation_fitness,U_G#graph.validation_fitness_std)),
+	%print_MultiObjectiveFitness(File,U_G#graph.evaluation_Index,U_G#graph.validation_fitness),
 	
 	io:format(File,"~n~n~n#Validation Max Fitness Vs Evaluations, Morphology:~p",[Morphology]),
 	%lists:foreach(fun({X,Y}) -> io:format(File, "~p ~p~n",[X,Y]) end, lists:zip(U_G#graph.evaluation_Index,U_G#graph.validationmax_fitness)),
@@ -437,3 +467,58 @@ trace2graph(TraceFileName)->
 	io:format("Traces:~p~n",[Traces]),
 	Graphs = prepare_Graphs(Traces),
 	write_Graphs(Graphs,TraceFileName++"_Graph").
+
+get_evaluations(E_Id)->
+	get_evaluations(E_Id,undefined,undefined).
+get_evaluations(E_Id,FitnessGoal)->
+	get_evaluations(E_Id,FitnessGoal,undefined).
+get_evaluations(E_Id,FitnessGoal,EvalLimit)->
+	[E] = mnesia:dirty_read({experiment,E_Id}),
+	Trace_Acc =E#experiment.trace_acc,
+	EvaluationAcc=[analyze_stats(lists:reverse(T#trace.stats),FitnessGoal,EvalLimit,0)|| T<-Trace_Acc],
+	TotEvoRuns = length(EvaluationAcc),
+	SuccessAcc = [E|| E<-EvaluationAcc,E=/=undefined],
+	TotSuccess = length(SuccessAcc),
+	SuccessRate = TotSuccess/TotEvoRuns,
+	io:format("SuccessAcc:~p~n",[SuccessAcc]),
+	Avg = case SuccessAcc of
+		[] ->
+			undefined;
+		SuccessAcc ->
+			functions:avg(SuccessAcc)
+	end,
+	Std = functions:std(SuccessAcc,Avg,[]),
+	io:format("Sucess rate:{~p/~p,~p%} Avg:~p Std:~p~n",[TotSuccess,TotEvoRuns,SuccessRate*100,Avg,Std]).
+		
+		analyze_stats([[S]|Stats],FitnessGoal,EvalLimit,Acc)->
+			io:format("S:~p~n",[S]),
+			U_Acc = Acc+S#stat.evaluations,
+			case S#stat.max_fitness of
+				[] ->	
+					analyze_stats(Stats,FitnessGoal,EvalLimit,U_Acc);
+				[MaxFitness]->	
+					case MaxFitness >= FitnessGoal of
+						true ->
+							U_Acc;
+						false ->
+							case U_Acc > EvalLimit of
+								true ->
+									undefined;
+								false ->
+									analyze_stats(Stats,FitnessGoal,EvalLimit,U_Acc)
+							end
+					end
+			end;
+%analyze_stats(Stats,U_Acc);
+		analyze_stats([],FitnessGoal,EvalLimit,Acc)->
+			case FitnessGoal of
+				undefined ->
+					Acc;
+				_ ->
+					undefined
+			end.
+			
+chg_mrph(Id,NewMorph)->
+	[DX] = mnesia:dirty_read({dx,Id}),
+	mnesia:dirty_write(DX#dx{morphology=NewMorph}),
+	io:format("Ok: OldMorph:~p NewMorph:~p~n",[DX#dx.morphology,NewMorph]).

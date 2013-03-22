@@ -107,6 +107,11 @@ bin(Val)->
 		true -> 1;
 		false -> 0
 	end.
+bip(Val)->
+	case Val > 0 of
+		true -> 1;
+		false -> -1
+	end.
 
 trinary(Val)->
 	if
@@ -237,7 +242,6 @@ sigmoid_unipolar(Val)->%(-inf,inf) onto (0,1)
 	
 sigmoid_bipolar(Val)->%(-inf,inf) onto (-1,1)
 	(1-math:exp(-Val))/(1+math:exp(-Val)).
-	
 
 conic_section_function(CV,IV,WV)->
 	void.

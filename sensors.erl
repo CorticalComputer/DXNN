@@ -27,6 +27,7 @@ pole2_balancing(CTVL,SensorId,[Parameter])->
 %			gen_server:call(Scape_PId,{control,pole2_balancing,{sensor,SensorId,Parameter}})
 %	end,
 %	Input.
+%	[{Val,0}|| Val<-simulations:pole2_balancing(SensorId,Parameter)].
 	simulations:pole2_balancing(SensorId,Parameter).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% vowel_Recognition %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -967,7 +968,103 @@ cone(Density,Spread)->
 		Acc;
 	angle_list(Angle,Index,Resolution,Acc)->
 		angle_list(Angle+Resolution,Index-1,Resolution,[Angle|Acc]).
-		
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% XOR-AND-XOR %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+xorandxor(CTVL,_SensorId,_Parameters)->
+	case get(xorandxor) of
+		undefined ->
+			TF = [true,false],
+			TruthTable = [{[bo2bi(A),bo2bi(B),bo2bi(C),bo2bi(D)],bo2bi((A xor B) and (C xor D))} || A<-TF,B<-TF,C<-TF,D<-TF],
+			put(xorandxor,TruthTable);
+		TruthTable ->
+			TruthTable
+	end,
+	[{Q,A}|_]=TruthTable,
+	Q.
+	%[complex:scale(-1,1,X)|| X<-Q].
+
+	bo2bi(true)->1;
+	bo2bi(false)->-1.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% TMAZE %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+dtm_GetInput(VL,_SensorId,Parameters)->
+	SensoryVector=tmaze:dtm_sim(exoself_id,sense,Parameters),
+	%io:format("self():~p SensoryVector:~p~n",[self(),SensoryVector]),
+	case length(SensoryVector)==VL of
+		true ->
+			SensoryVector;
+		false ->
+			io:format("Error in sensor:dtm_GetInput/3, VL:~p SensoryVector:~p~n",[VL,SensoryVector]),
+			lists:duplicate(VL,0)
+	end.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% DECEPTIVE_TARGET %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+distance_scanner_range(CTVL,SensorId,[Spread,Density,RadialOffset])->
+	case gen_server:call(get(scape),{get_all,avatars}) of
+		destroyed->
+			lists:duplicate(CTVL,-1);
+		Avatars ->
+			Self = lists:keyfind(self(),2,Avatars),
+		%	io:format("Avatars:~p Self:~p~n",[Avatars,Self]),
+			Loc = Self#avatar.loc,
+			Direction = Self#avatar.direction,
+			
+			Distance = case lists:keyfind(plant, 5, Avatars) of
+				false ->
+					-1;
+				Plant ->
+					{PX,PY} = Plant#avatar.loc,
+					Self = lists:keyfind(self(), 2, Avatars),
+					{AX,AY} = Self#avatar.loc,
+					math:sqrt(math:pow(PX-AX,2) + math:pow(PY-AY,2))
+			end,
+			[Distance|distance_scaner(silent,{1,0,0},Density,Spread,Loc,Direction,lists:keydelete(self(), 2, Avatars))]
+	end.
+
+color_scanner_range(CTVL,SensorId,[Spread,Density,RadialOffset])->
+	case gen_server:call(get(scape),{get_all,avatars}) of
+		destroyed->
+			lists:duplicate(CTVL,-1);
+		Avatars ->
+			Self = lists:keyfind(self(),2,Avatars),
+		%	io:format("Avatars:~p Self:~p~n",[Avatars,Self]),
+			Loc = Self#avatar.loc,
+			Direction = Self#avatar.direction,
+			
+			Distance = case lists:keyfind(plant, 5, Avatars) of
+				false ->
+					-1;
+				Plant ->
+					{PX,PY} = Plant#avatar.loc,
+					Self = lists:keyfind(self(), 2, Avatars),
+					{AX,AY} = Self#avatar.loc,
+					math:sqrt(math:pow(PX-AX,2) + math:pow(PY-AY,2))
+			end,
+			[Distance|color_scaner(silent,{1,0,0},Density,Spread,Loc,Direction,lists:keydelete(self(), 2, Avatars))]
+	end.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% FUNCTION_APROXIMATION %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+function_approximation(CTVL,SensorId,Parameters)->
+	case get(fun_approximation) of
+		undefined ->
+			put(fun_approximation_fitness,0),
+			case get(opmode) of
+				gt	->
+					Range =void;
+				validation ->
+					Range =void;
+				test ->
+					Range =void
+			
+			end,
+			Function_Points = void,
+			put(fun_approximation,Function_Points),
+			[{I,_EO}|_]=Function_Points,
+			I;
+		[{I,_EO}|_] ->
+			I
+	end.
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% FOREX SENSORS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 fx_GraphSensor(CTVL,_SensorId,Parameters)->
 	case get(fx_pid) of
@@ -1007,11 +1104,11 @@ fx_ListSensor(CTVL,_SensorId,Parameters)->
 	case get(opmode) of
 		gt	->
 			%Normal, assuming we have 10000 rows, we start from 1000 to 6000
-			PId ! {self(),sense,'EURUSD15',close,[HRes,list_sensor],5000,1000};
+			PId ! {self(),sense,'EURUSD15',close,[HRes,list_sensor],1000,200};
 		validation ->
-			PId ! {self(),sense,'EURUSD15',close,[HRes,list_sensor],999,500};
+			PId ! {self(),sense,'EURUSD15',close,[HRes,list_sensor],199,100};
 		test ->
-			PId ! {self(),sense,'EURUSD15',close,[HRes,list_sensor],499,last}
+			PId ! {self(),sense,'EURUSD15',close,[HRes,list_sensor],99,last}
 	end,
 	receive 
 		{_From,Result}->
@@ -1353,7 +1450,7 @@ aart_classifier(CTVL,_SensorId,Parameters)->
 	case get(opmode) of
 		gt ->%io:format("gt~n"),
 			classification_scape:classify_sense(TableName,[trn,val]);
-		validation ->io:format("sensors:aart_classifier(...), OpMode = validation~n"),
+		validation ->%io:format("sensors:aart_classifier(...), OpMode = validation~n"),
 			classification_scape:classify_sense(TableName,[tst]);
 		test ->
 			classification_scape:classify_sense(TableName,[tst])

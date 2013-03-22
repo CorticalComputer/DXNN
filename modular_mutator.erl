@@ -21,15 +21,15 @@ mos()->?MUTATION_OPERATORS.
 %	add_SubCoreModulator,
 %	remove_SubCoreModulator,
 
-	add_Neuron, %Can also add a link to a new sensor or actuator
+	{add_Neuron,2}, %Can also add a link to a new sensor or actuator
 %	remove_Neuron,
-	neurolink_OutputSplice,
+	{neurolink_OutputSplice,2},
 %	neurolink_DeSplice,
 	%neurolink_InputSplice,
 %	neurolink_DeInSplice,
-	add_ONLink, %Can also add a link to a new actuator
+	{add_ONLink,2}, %Can also add a link to a new actuator
 %	remove_ONLink,
-	add_INLink, %Can also add a link to a new sensor
+	{add_INLink,2}, %Can also add a link to a new sensor
 %	remove_INLink,
 %	change_PlasticityFunction,
 %	change_ActivationFunction,
@@ -42,12 +42,16 @@ mos()->?MUTATION_OPERATORS.
 %	decrease_SubstrateResolution,
 %	increase_SubstrateDepth,
 %	decrease_SubstrateDepth,
-	add_SensorLink,
-	add_ActuatorLink,
+	{add_SensorLink,1},
+	{add_ActuatorLink,1},
 %	add_Sensor,
 %	add_Actuator,
 %	remove_Threshold,
-	add_Threshold
+%{perturb_weights,485},
+%{add_CircuitLayer,2},
+%{add_CircuitNode,4},
+%delete_CircuitNode,
+	{add_Threshold,1}
 	]).%change_Adapter,change_ActivationFunction,reset_DWP,reset_Neuron]).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Modular_Mutator Parameters %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -define(SCCTTypes,[single,block,block]).%[single,block,all],
@@ -152,7 +156,8 @@ test(DX_Id,MutationOperator)->
 			get_RandomMutagen(Mutagens)->
 				case Mutagens of
 					[{Mutagen,_PercentageSector}|_] ->
-						get_RandomMutagen(0,Mutagens,random:uniform());
+						Tot=lists:sum([RelativeProbability||{Mutator,RelativeProbability} <- Mutagens]),
+						get_RandomMutagen(0,Mutagens,random:uniform(Tot));
 					_ ->
 						Tot_Mutagens = length(Mutagens),
 						lists:nth(random:uniform(Tot_Mutagens),Mutagens)
@@ -383,6 +388,60 @@ increase_SubstrateDepth(DX_Id,Cx_Id)->
 decrease_SubstrateDepth(_DX_Id,_Cx_Id)->
 	done.%TODO
 
+%{add_CircuitLayer,3},
+%{add_CircuitNode,3},
+%delete_CircuitNode,
+add_CircuitNode(DX_Id,Cx_Id)->
+	[DX] = mnesia:read({dx,DX_Id}),
+	[Cx] = mnesia:read({cortex,Cx_Id}),
+	io:format("Inside add_CircuitNode(DX_Id,Cx_Id)~n"),
+	NId_Pool=Cx#cortex.cids,
+	N_Id = lists:nth(random:uniform(length(NId_Pool)),NId_Pool),	
+	[N] = mnesia:read({neuron,N_Id}),
+	case N#neuron.type of
+		standard ->
+			exit("******** ERROR: Not a circuit type neuron, can not execute: add_CircuitNode(DX_Id,Cx_Id)~n");
+		circuit ->
+			Circuit = N#neuron.dwp,
+			TotLayers = length(Circuit)-1,
+			LayerIndex = random:uniform(TotLayers),
+			VL = case LayerIndex == 1 of
+				true ->
+					N#neuron.ivl;
+				false ->
+					undefined
+			end,
+			U_Circuit=circuit:add_neurode(Circuit,LayerIndex,VL),
+			U_N = N#neuron{dwp=U_Circuit},
+			mnesia:write(U_N),
+			update_EvoHist(DX_Id,add_CircuitNode,void,N_Id,void,void,void)
+	end.
+
+add_CircuitLayer(DX_Id,Cx_Id)->
+	[DX] = mnesia:read({dx,DX_Id}),
+	[Cx] = mnesia:read({cortex,Cx_Id}),
+	io:format("add_CircuitLayer(DX_Id,Cx_Id)~n"),
+	NId_Pool=Cx#cortex.cids,
+	N_Id = lists:nth(random:uniform(length(NId_Pool)),NId_Pool),	
+	[N] = mnesia:read({neuron,N_Id}),
+	case N#neuron.type of
+		standard ->
+			exit("******** ERROR: Not a circuit type neuron, can not execute: add_CircuitLayer(DX_Id,Cx_Id)~n");
+		circuit ->
+			Circuit = N#neuron.dwp,
+			TotLayers = length(Circuit),
+			LayerIndex = random:uniform(TotLayers),
+			VL = case LayerIndex == TotLayers of
+				true ->
+					random:uniform(1);
+				false ->
+					random:uniform(3)
+			end,
+			U_Circuit=circuit:add_layer(Circuit,LayerIndex,VL),
+			U_N = N#neuron{dwp=U_Circuit},
+			mnesia:write(U_N),
+			update_EvoHist(DX_Id,add_layer,void,N_Id,void,void,void)
+	end.
 %--------------------------------add_Sensor--------------------------------
 %update_EvoHist(DX_Id,Mutagen,New_Id,Applied_On,From,To,Parameter)
 add_SensorLink(DX_Id,Cx_Id)->%TODO We need to eventually make sure that sensor holds the most recent list of sensors, same for actuators.
@@ -545,13 +604,15 @@ io:format("neurolink_OutputSplice(DX_Id,Cx_Id)::N_Id~p, O_IdPool:~p~n",[N_Id,O_I
 
 	[NewN] = mnesia:read({neuron,NewN_Id}),
 	mnesia:write(NewN#neuron{
-		ivl = NewN#neuron.ivl + 1,
+		ivl = NewN#neuron.ivl + 1,%What if input is different. this should support IVL.
 		i = [{N_Id,1}|NewN#neuron.i],
 		dwp = case NewN#neuron.type of
 			standard ->
 				[{N_Id,[technome_constructor:null_wt()]}|NewN#neuron.dwp];
-			bst ->
-				NewN#neuron.dwp
+			circuit ->%The circuit will have a first layer whose neurodes have 1 weight each, to accept input from the neuron N_Id
+				[NeurodeLayer|Substrate]=NewN#neuron.dwp,
+				U_NeurodeLayer=[Neurode#neurode{weights=[random:uniform()-0.5||_<-lists:seq(1,1)]}||Neurode<-NeurodeLayer],
+				[U_NeurodeLayer|Substrate]
 		end,
 		o = [O_Id|NewN#neuron.o]
 	}),
@@ -573,7 +634,10 @@ io:format("neurolink_OutputSplice(DX_Id,Cx_Id)::N_Id~p, O_IdPool:~p~n",[N_Id,O_I
 					standard ->
 						{value,{N_Id,WeightsP}} = lists:keysearch(N_Id,1,ON#neuron.dwp),
 						lists:keyreplace(N_Id,1,ON#neuron.dwp,{NewN_Id,WeightsP});
-					bst ->
+					circuit ->%By default a circuit has an output_VL ==1, so the ON was previously either connected to normal neuron or circuit neuron, in both cases output of that was 1, as is now, so nothing changes in dwp
+						%[ON_NeurodeLayer|ON_Substrate]=ON#neuron.dwp,
+						%U_ON_NeurodeLayer=[{Id,[random:uniform()-0.5||_<-lists:seq(1,1)]++Weights}||{Id,Weights}<-ON_NeurodeLayer],
+						%[U_ON_NeurodeLayer|ON_Substrate]
 						ON#neuron.dwp
 				end})
 	end,
@@ -662,23 +726,36 @@ io:format("neurlink_InputSplice(DX_Id,Cx_Id)::N_Id~p, I_IdPool:~p~n",[N_Id,I_IdP
 
 	[NewN] = mnesia:read({neuron,NewN_Id}),
 	{I_Id,I_VL} = lists:keyfind(I_Id, 1, N#neuron.i),
-io:format("NewN#neuron.type:~p~n",[NewN#neuron.type]),
+	io:format("NewN#neuron.type:~p~n",[NewN#neuron.type]),
 	mnesia:write(NewN#neuron{
 		ivl = NewN#neuron.ivl + I_VL,
 		i = [{I_Id,I_VL}|NewN#neuron.i],
 		dwp = case NewN#neuron.type of
 			standard ->
 				[{I_Id,[technome_constructor:null_wt()||_<-lists:seq(1,I_VL)]}|NewN#neuron.dwp];
-			bst ->
-				NewN#neuron.dwp
+			circuit ->%The new neuron will have a circuit whose first layer has I_VL number of weights.
+				[NeurodeLayer|Substrate]=NewN#neuron.dwp,
+				U_NeurodeLayer=[Neurode#neurode{weights=[random:uniform()-0.5||_<-lists:seq(1,I_VL)]}||Neurode<-NeurodeLayer],
+				[U_NeurodeLayer|Substrate]
 		end,
 		o = [N_Id|NewN#neuron.o]
 	}),
 	
 	[UN] = mnesia:read({neuron,N_Id}),
 	mnesia:write(UN#neuron{
-		i = [{NewN_Id,1}|UN#neuron.i] -- [{I_Id,I_VL}],
-		dwp = [{NewN_Id,[technome_constructor:null_wt()]}|lists:keydelete(I_Id, 1,UN#neuron.dwp)]
+		i = lists:keyreplace(I_Id,1,UN#neuron.i,{NewN_Id,1}),
+		dwp = case UN#neuron.type of
+			standard ->
+				{value,{I_Id,WeightsP}} = lists:keysearch(I_Id,1,UN#neuron.dwp),
+				lists:keyreplace(I_Id,1,UN#neuron.dwp,{NewN_Id,WeightsP});
+			circuit ->%Replace the previous IVL of weights with the IVL==1 of the new circuit neuron. First delete weights based on Index and IVL. Then add Weights based on Indexand IVL==1.
+				[UN_NeurodeLayer|UN_Substrate]=UN#neuron.dwp,
+				{TargetIndex,TargetVL}=find_index(I_Id,UN#neuron.i,1),
+				%[NeurodeLayer|Substrate] = ToDWP,
+				U_UN_NeurodeLayer=[Neurode#neurode{weights=circuit:delete_weights(TargetIndex,TargetVL,Neurode#neurode.weights)}||Neurode<-UN_NeurodeLayer],
+				U2_UN_NeurodeLayer=[Neurode#neurode{weights=circuit:add_weights(TargetIndex,1,Neurode#neurode.weights)}||Neurode<-U_UN_NeurodeLayer],%Adds an extra weight, 1 because the NewNis a neuron, with an output vector of length 1.
+				[U2_UN_NeurodeLayer|UN_Substrate]
+		end
 	}),
 
 	case I_Id of
@@ -788,16 +865,40 @@ add_Threshold(DX_Id,Cx_Id)->
 		Generation = DX#dx.generation,
 		[N] = mnesia:read({neuron,N_Id}),
 		DWP = N#neuron.dwp,
-		case lists:keymember(threshold, 1, DWP) of
-			true ->
-				exit("********ERROR:add_Threshold:: This Neuron already has a threshold part.");
-			false ->
-				U_DWP = lists:append(DWP,[{threshold,[technome_constructor:weight_tuple()]}]),
+		case N#neuron.type of
+			standard ->
+				case lists:keymember(threshold, 1, DWP) of
+					true ->
+						exit("********ERROR:add_Threshold:: This Neuron already has a threshold part.");
+					false ->
+						U_DWP = lists:append(DWP,[{threshold,[technome_constructor:weight_tuple()]}]),
+						mnesia:write(N#neuron{
+							dwp = U_DWP,
+							generation = Generation})
+				end;
+			circuit ->
+				TotWeights=lists:sum(lists:flatten([[length(Neurode#neurode.weights)||Neurode<-Layer]||Layer <-DWP])),
+				MP=1/TotWeights,
+				U_DWP=[[ant(Neurode,MP)|| Neurode<-Layer]||Layer<-DWP],
 				mnesia:write(N#neuron{
 					dwp = U_DWP,
-					generation = Generation})
-		end,
+					generation = Generation
+				})
+		end,	
 		update_EvoHist(DX_Id,add_Threshold,void,N_Id,void,void,void).
+	
+		ant(N,MP)->
+			case N#neurode.bias of
+				undefined ->
+					case random:uniform() < MP of
+						true ->
+							N#neurode{bias=random:uniform()-0.5};
+						false ->
+							N
+					end;
+				_Bias ->
+					N
+			end.
 
 %--------------------------------remove Thresholds--------------------------------
 %%%Function: 
@@ -991,8 +1092,10 @@ link_FromNeuronToNeuron(DX_Id,From_NeuronId,To_NeuronId)->
 				U_ToDWP = case ToN#neuron.type of
 					standard -> 
 						[{FromId, [technome_constructor:weight_tuple()||_ <-lists:seq(1,FromOVL)]}|ToDWP];
-					bst -> 
-						ToDWP
+					circuit ->%Because new neuron connections are accumulated on the left, we need to accumulate new weights on the left of the weight list for every neurode in input layer of circuit
+						[NeurodeLayer|Substrate]=ToDWP,
+						U_NeurodeLayer=[Neurode#neurode{weights=[random:uniform()-0.5||_<-lists:seq(1,FromOVL)]++Neurode#neurode.weights}||Neurode<-NeurodeLayer],
+						[U_NeurodeLayer|Substrate]
 				end,
 				ToN#neuron{
 					ivl = U_ToIVL,
@@ -1168,8 +1271,11 @@ cutlink_FromNeuronToNeuron(DX_Id,From_NeuronId,To_NeuronId)->
 				U_ToDWP = case ToN#neuron.type of
 					standard ->
 						lists:keydelete(FromId,1,ToDWP);
-					bst ->
-						ToDWP
+					circuit ->%Weights are removed based on the TargetIndex somewhere in the weight list.
+						{TargetIndex,TargetVL}=find_index(FromId,ToI,1),
+						[NeurodeLayer|Substrate] = ToDWP,
+						U_NeurodeLayer=[Neurode#neurode{weights=circuit:delete_weights(TargetIndex,TargetVL,Neurode#neurode.weights)}||Neurode<-NeurodeLayer],
+						[U_NeurodeLayer|Substrate]
 				end,
 				ToN#neuron{
 					ivl = U_ToIVL,
@@ -1179,6 +1285,11 @@ cutlink_FromNeuronToNeuron(DX_Id,From_NeuronId,To_NeuronId)->
 			false ->
 				exit("ERROR[can not remove I_Id]: ~p not a member of ~p~n",[FromId,ToN#neuron.id])
 		end.
+		
+		find_index(Id,[{Id,VL}|_I],Index)->
+			{Index,VL};
+		find_index(TargetId,[{Id,VL}|I],Index)->
+			find_index(TargetId,I,Index+VL).
 %CT:
 %	neural:		[{Sensor1,[{N_Id1,FilterTag1},{N_Id2,FilterTag2}...]}...] FilterTag:{single,Index} | {block,VL}
 %	hypercube:	[{sCT,[{N_Id1,FilterTag1},{N_Id2,FilterTag2}...]}...] FilterTag:{single,Index} | {block,VL}	
@@ -1523,6 +1634,25 @@ reset_DWP(DX_Id,Cx_Id)->
 	New_DWP = technome_constructor:create_NWP(N_I,[]),
 	mnesia:write(N#neuron{dwp = New_DWP,generation=Generation}),
 	update_EvoHist(DX_Id,reset_DWP,void,N_Id,void,void,New_DWP).
+	
+perturb_weights(DX_Id,Cx_Id)->
+	[Cx] = mnesia:read({cortex,Cx_Id}),
+	Generation = Cx#cortex.generation,
+	Cx_CIds = Cx#cortex.cids,
+	Link_Form = Cx#cortex.link_form,
+	N_Id = lists:nth(random:uniform(length(Cx_CIds)),Cx_CIds),
+	[N] = mnesia:read({neuron,N_Id}),
+	DWP = N#neuron.dwp,
+	case N#neuron.type of
+		standard ->
+			MutationP = 1/math:sqrt(length(DWP)),%TODO: Find a better way to find the length of DWP, perhaps calculate it once and store.
+			Perturbed_DWP=neuron:perturb_DWP(DWP,MutationP,math:pi(),[]);
+%			io:format("Mutating DWP:~p to Updated_DW:~p~n",[DWP,Updated_DWP]),
+		circuit ->
+			Perturbed_DWP=circuit:perturb_circuit(DWP,math:pi())
+	end,	
+	mnesia:write(N#neuron{dwp = Perturbed_DWP,generation=Generation}),
+	update_EvoHist(DX_Id,perturb_weights,void,N_Id,void,void,Perturbed_DWP).
 
 %--------------------------------Reset Neuron--------------------------------
 %%%Notes: 

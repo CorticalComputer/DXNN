@@ -10,7 +10,7 @@
 -include("records.hrl").
 %-compile(export_all).
 %% API
--export([start_link/1,start_link/0,start/1,start/0,stop/0,init/2,init_population/1,continue/0,extract_DXIds/2,delete_population/1,championship/0,champion/0,hof_competition/2,hof_rank/2,hof_top3/2,hof_efficiency/2,hof_random/2,list_append/2,la/2]).
+-export([start_link/1,start_link/0,start/1,start/0,stop/0,init/2,init_population/1,continue/0,extract_DXIds/2,delete_population/1,championship/0,champion/0,hof_competition/2,hof_rank/2,hof_top3/2,hof_efficiency/2,hof_random/2,list_append/2,la/2,choose_Winners/6,vecdiff/3]).
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3,create_MutantDXCopy/1,test/0,new/0,reset/0,backup/0,info/1]).
 
@@ -19,16 +19,17 @@
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Population Monitor Options %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% %steady_state,generational
 %Morphologies:pole2_balancing3,prey,forex_trader, xor_mimic
--define(EFF,0.1). %Efficiency., TODO: this should further be changed from absolute number of neurons, to diff in lowest or avg, and the highest number of neurons
+-define(EFF,1). %Efficiency., TODO: this should further be changed from absolute number of neurons, to diff in lowest or avg, and the highest number of neurons
 -define(SURVIVAL_PERCENTAGE,0.5).
 -define(SPECIE_SIZE_LIMIT,10).
 -define(INIT_SPECIE_SIZE,10).
--define(REENTRY_PROBABILITY,0.1).
--define(SHOF_RATIO,0.5).
+-define(REENTRY_PROBABILITY,0.0).
+-define(SHOF_RATIO,1).
 -define(ACTIVE_SR,0.5).
 -define(SHOF_SR,0.5).
+-define(MIN_ACCEPTABLE_FITNESS_RATIO,1).
 -define(SELECTION_TYPE,hof_competition).
--define(EVOLUTION_TYPE,generational).
+-define(EVOLUTION_TYPE,generational).%steady_state
 %-define(POPULATION_LIMIT,?SPECIE_SIZE_LIMIT*length(?INIT_MORPHOLOGIES)).
 -define(INIT_POPULATION_ID,test).
 %-define(INIT_ARCHITECTURE_TYPE,modular).
@@ -36,7 +37,7 @@
 -define(OP_MODES,[gt,validation]).
 -define(INIT_POLIS,mathema).
 -define(GENERATION_LIMIT,1000).
--define(EVALUATIONS_LIMIT,10000).
+-define(EVALUATIONS_LIMIT,100000).
 -define(DIVERSITY_COUNT_STEP,500).
 -define(GEN_UID,technome_constructor:generate_UniqueId()).
 -define(CHAMPION_COUNT_STEP,500).
@@ -45,15 +46,18 @@
 	#constraint{
 		morphology=Morphology,
 		sc_types=SC_Types,
-		neural_afs =[tanh],
+		neural_afs =[cplx],
 		sc_neural_plasticity=[none],
 		sc_hypercube_plasticity=[none],
 		sc_hypercube_linkform = Substrate_LinkForm,
-		sc_neural_linkform=LinkForm} || 
-			Morphology<-[aart_classifier],
+		sc_neural_linkform=LinkForm,
+		%neural_types=[circuit]
+		neural_types=[standard]
+	} || 
+			Morphology<-[prey],
 			Substrate_LinkForm <- [[feedforward]],
 			LinkForm<-[recursive],
-			SC_Types<-[[aart]]
+			SC_Types<-[[neural]]
 	]
 ).
 -define(INIT_PMP,#pmp{
@@ -63,8 +67,8 @@
 		evolution_type = ?EVOLUTION_TYPE,
 		selection_type = ?SELECTION_TYPE,
 		specie_constraint = ?INIT_CONSTRAINTS,
-		specie_size_limit=20,
-		init_specie_size=20,
+		specie_size_limit=10,
+		init_specie_size=10,
 		polis_id = mathema,
 		generation_limit = inf,
 		evaluations_limit = inf,
@@ -244,15 +248,15 @@ handle_cast({DX_Id,terminated,Fitness,Fitness_Profile},S) when S#state.evolution
 						false ->%IN_PROGRESS
 							DX_Ids = extract_DXIds(Population_Id,all),
 							calculate_MaxTrials(DX_Ids),
-							summon_dxs(OpMode,DX_Ids),
-							U_S = S#state{dx_ids = DX_Ids,tot_individuals =length(DX_Ids),individuals_left = length(DX_Ids),attempt=U_Attempt},
+							ActiveAgent_IdPs = summon_dxs(OpMode,DX_Ids),
+							U_S = S#state{dx_ids = DX_Ids,activeDX_IdPs = ActiveAgent_IdPs,tot_individuals =length(DX_Ids),individuals_left = length(DX_Ids),attempt=U_Attempt},
 							{noreply,U_S}
 					end;
 				bypass ->
 					DX_Ids = extract_DXIds(Population_Id,all),
 					calculate_MaxTrials(DX_Ids),
-					summon_dxs(OpMode,DX_Ids),
-					U_S = S#state{dx_ids = DX_Ids,tot_individuals = length(DX_Ids),individuals_left = length(DX_Ids),attempt=U_Attempt},
+					ActiveAgent_IdPs = summon_dxs(OpMode,DX_Ids),
+					U_S = S#state{dx_ids = DX_Ids,activeDX_IdPs = ActiveAgent_IdPs,tot_individuals = length(DX_Ids),individuals_left = length(DX_Ids),attempt=U_Attempt},
 					{noreply,U_S};
 				done ->
 					io:format("Shutting down Population Monitor and all associated Individuals~n"),
@@ -271,64 +275,52 @@ handle_cast({DX_Id,terminated,Fitness,Fitness_Profile},S) when S#state.evolution
 			U_S = S#state{dx_ids = U_ActiveDX_Ids,individuals_left = IndividualsLeft-1},
 			{noreply,U_S}
 	end;
-handle_cast({DX_Id,terminated,Fitness,Fitness_Profile},State) when State#state.evolution_type == steady_state ->
+handle_cast({Agent_Id,terminated,Fitness,Fitness_Profile},State) when State#state.evolution_type == steady_state ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%TODO:UPDATE%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%BELOW
-%	IndividualsLeft = S#state.individuals_left,
-	io:format("Tot Evaluations:~p~n",[State#state.evaluations_acc]),
-	[DX] = mnesia:dirty_read({dx,DX_Id}),
-	Morphology= DX#dx.morphology,
-	Specie_Id = DX#dx.specie_id,
-	[Specie] = mnesia:dirty_read({specie,Specie_Id}),
-	Old_DeadPool_DXSummaries = Specie#specie.dead_pool,
-	Old_DX_Ids = Specie#specie.dx_ids,
-	io:format("Old_DeadPool:~p~n Old_DX_Ids:~p~n",[Old_DeadPool_DXSummaries,Old_DX_Ids]),
-	DeadPool_DXSummaries = [{Fitness,Fitness_Profile,DX_Id}|Old_DeadPool_DXSummaries],
-	%io:format("DX:~p Morphology:~p~n",[DX,Morphology]),
-	
-	SDX=lists:reverse(lists:sort([{Fitness_/math:pow(TotN,?EFF),{Fitness_,[A,B,TotN],DX_Id_}}||{Fitness_,[A,B,TotN],DX_Id_}<-lists:reverse(lists:sort(DeadPool_DXSummaries))])),
-	ProperlySorted_DXSummaries = [Val || {_,Val}<-SDX],
-	%ProperlySorted_DXSummaries = lists:reverse(lists:sort(DXSummaries)),
-
-	Top_DXSummaries = lists:sublist(ProperlySorted_DXSummaries,round(?SPECIE_SIZE_LIMIT*?SURVIVAL_PERCENTAGE)),
-	
-	TotEnergy = lists:sum([extract_DXFitness(DXId) || {_Fitness,_Fitness_Profile,DXId}<-DeadPool_DXSummaries]),
-	TotNeurons = lists:sum([extract_DXTotNeurons(DXId) || {_Fitness,_Fitness_Profile,DXId} <- DeadPool_DXSummaries]),
-	NeuralEnergyCost = TotEnergy/TotNeurons,
-	%io:format("TotEnergy:~p TotNeurons:~p NeuralEnergyCost:~p~n",[TotEnergy,TotNeurons,NeuralEnergyCost]),
-	{AlotmentsP,NextGenSize_Estimate} = calculate_alotments(Top_DXSummaries,NeuralEnergyCost,[],0),
-	io:format("Morphology:~p DXSummaries:~p~n Top_DXSummaries:~p~n NeuralEnergyCost:~p~n NextGenSize_Estimate:~p~n AllotmentsP:~p~n",
-		[Morphology,DeadPool_DXSummaries,Top_DXSummaries,NeuralEnergyCost,NextGenSize_Estimate,AlotmentsP]),
-	{WinnerFitness,WinnerProfile,WinnerDX_Id}=choose_CompetitionWinner(AlotmentsP,random:uniform(round(100*NextGenSize_Estimate))/100,0),
-	Valid_DXSummaries = case length(ProperlySorted_DXSummaries) >= ?SPECIE_SIZE_LIMIT of
-		true ->
-			[{InvalidFitness,InvalidProfile,InvalidDX_Id}|Remaining_DXSummaries] = lists:reverse(ProperlySorted_DXSummaries),
-%			io:format("Informationtheoretic Death:~p::~p~n",[InvalidDX_Id,{InvalidFitness,InvalidProfile,InvalidDX_Id}]),
-			delete_dx(InvalidDX_Id,safe),
-			Remaining_DXSummaries;
-		false ->
-			ProperlySorted_DXSummaries
+	F = fun()->
+		%io:format("Tot Evaluations:~p~n",[State#state.evaluations_acc]),
+		[A] = mnesia:read({dx,Agent_Id}),
+		Specie_Id = A#dx.specie_id,
+		[S] = mnesia:read({specie,Specie_Id}),
+		U_ActiveAgent_Ids = S#specie.dx_ids -- [Agent_Id],
+		Distinguishers = S#specie.hof_distinguishers,
+		SHOF = S#specie.hall_of_fame,
+		{U_SHOF,Losers}=update_SHOF(SHOF,[Agent_Id],Distinguishers,[]),
+		io:format("SHOF:~p~nU_SHOF:~p~n",[SHOF,U_SHOF]),
+		U_S = S#specie{hall_of_fame=U_SHOF,dx_ids=U_ActiveAgent_Ids},
+		mnesia:write(U_S),
+		U_S
 	end,
-	ActiveDX_IdP = case random:uniform() < 0.1 of%Update dx_ids, and dead_pool
-		true ->
-			U_DeadPool_DXSummaries = lists:delete({WinnerFitness,WinnerProfile,WinnerDX_Id},Valid_DXSummaries),
-			{ok,WinnerDX_PId} = exoself:start_link({State#state.op_mode,WinnerDX_Id,void_MaxTrials,self()}),
-			{WinnerDX_Id,WinnerDX_PId};
-		false ->
-			U_DeadPool_DXSummaries = Valid_DXSummaries,
-			DXClone_Id = create_MutantDXCopy(WinnerDX_Id,safe),
-%			io:format("WinnerDX:~p DXClone:~p~n",[mnesia:dirty_read({dx,WinnerDX_Id}),mnesia:dirty_read({dx,DXClone_Id})]),
-%			io:format("Newborn:~p::~p~n",[DXClone_Id,{WinnerFitness,WinnerProfile,WinnerDX_Id}]),
-			{ok,DXClone_PId} = exoself:start_link({State#state.op_mode,DXClone_Id,void_MaxTrials,self()}),
-			{DXClone_Id,DXClone_PId}
-	end,
-	[USpecie]=mnesia:dirty_read({specie,Specie_Id}),
-	mnesia:dirty_write(USpecie#specie{dead_pool = U_DeadPool_DXSummaries}),
+	{atomic,U_S}=mnesia:transaction(F),
+	ActiveAgent_IdPs = lists:keydelete(Agent_Id,1,State#state.activeDX_IdPs),
+	case (State#state.evaluations_acc >= ?EVALUATIONS_LIMIT) or (State#state.goal_status==reached) of
+		true ->%DONE
+			gather_STATS(State#state.population_id,State#state.evaluations_acc,State#state.op_mode),
+			[gen_server:cast(PId,{stop,normal}) || {_Id,PId}<-ActiveAgent_IdPs],
+			{stop,normal,State};
+		false ->%CONTINUE
+			F2 = fun()->
+				U_SHOF = U_S#specie.hall_of_fame,
+				Specie_Id = U_S#specie.id,
+				FitnessScaled=[{Champ#champion.main_fitness/math:pow(Champ#champion.tot_n,?EFF),Champ#champion.id}||Champ<-U_SHOF],
+				TotFitness = lists:sum([Main_Fitness || {Main_Fitness,_Id}<-FitnessScaled]),
+				[Offspring_Id]=choose_Winners(Specie_Id,FitnessScaled,TotFitness,[],[],1),
+				[U2_S] = mnesia:read({specie,Specie_Id}),
+				mnesia:write(U2_S#specie{dx_ids=[Offspring_Id|U2_S#specie.dx_ids]}),
+				Offspring_Id
+			end,
+			{atomic,Offspring_Id}=mnesia:transaction(F2),
+			OpMode = case lists:member(gt,State#state.op_mode) of
+				true ->
+					gt;
+				false ->
+					exit("ERROR in population_monitor. OpModes does not contain gt in training stage~n")
+			end,
+			[{Offspring_Id,Offspring_PId}] = summon_dxs(OpMode,[Offspring_Id]),%TODO: Uses a static gt opmode.
+			{noreply,State#state{activeDX_IdPs=[{Offspring_Id,Offspring_PId}|ActiveAgent_IdPs]}}
+	end;
 
-	ActiveDX_IdPs = State#state.activeDX_IdPs,
-	U_ActiveDX_IdPs = [ActiveDX_IdP|lists:keydelete(DX_Id,1,ActiveDX_IdPs)],
-	U_State = State#state{dx_ids=U_ActiveDX_IdPs},
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%TODO:UPDATE%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%ABOVE
-	{noreply,U_State};
 handle_cast({DX_Id,champion_terminated,Fitness,Fitness_Profile},S)->
 	IndividualsLeft = S#state.individuals_left,
 	ActiveDX_IdPs = S#state.activeDX_IdPs,
@@ -345,7 +337,7 @@ handle_cast({request,offspring,DX_Id},S)->
 	DXClone_Id = create_MutantDXCopy(DX_Id,safe),
 %	io:format("WinnerDX:~p DXClone:~p~n",[mnesia:dirty_read({dx,WinnerDX_Id}),mnesia:dirty_read({dx,DXClone_Id})]),
 %	io:format("Newborn:~p::~p~n",[DXClone_Id,{WinnerFitness,WinnerProfile,WinnerDX_Id}]),
-	{ok,_PId} = exoself:start_link({S#state.op_mode,DXClone_Id,void_MaxTrials,self()}),
+	{ok,_PId} = exoself:start_link({gt,DXClone_Id,void_MaxTrials,self()}),
 	Specie_Id = DX#dx.specie_id,
 	ActiveDXIds = get({active,Specie_Id}),
 	put({active,Specie_Id},[DXClone_Id|ActiveDXIds]),
@@ -455,13 +447,11 @@ terminate(Reason, S) ->
 			OpModes = S#state.op_mode,
 			[P] = mnesia:dirty_read({population,Population_Id}),
 			T = P#population.trace,
-			TotEvaluations=T#trace.tot_evaluations,
-			U_T = T#trace{tot_evaluations = TotEvaluations+S#state.evaluations_acc},
 			case whereis(benchmark) of
 				undefined ->	
 					 ok;
 				PId ->
-					PId ! {Population_Id,completed,U_T},
+					PId ! {Population_Id,completed,T},
 					io:format("******** Population_Monitor:~p shut down with Reason:~p OpTag:~p, while in OpModes:~p~n",[Population_Id,Reason,OpTag,OpModes])
 			end
 	end.
@@ -535,7 +525,6 @@ summon_dxs(OpMode,DX_Ids)->
 	summon_dxs(OpMode,DX_Ids,[]).
 	
 summon_dxs(OpMode,[DX_Id|DX_Ids],Acc)->
-%	io:format("DX_Id:~p~n",[DX_Id]),
 	{ok,DX_PId} = exoself:start_link({OpMode,DX_Id,get(max_trials),self()}),
 	summon_dxs(OpMode,DX_Ids,[{DX_Id,DX_PId}|Acc]);
 summon_dxs(_OpMode,[],Acc)->
@@ -595,7 +584,7 @@ init_population(PMP)->
 			id = Population_Id,
 			specie_ids = Specie_Ids,
 			polis_id = Polis_Id,
-			evo_strat = specie_evo_strat:init(),
+			evo_strat = specie_evo_strat:init(),%TODO: Not even used, needs to be removed or completed
 			seed_specie_ids=Specie_Ids,
 			seed_agent_ids= Seed_Agent_Ids},
 		mnesia:write(Population).
@@ -634,86 +623,184 @@ selection(Population_Id,SelectionType)->
 		[P] = mnesia:read({population,Population_Id}),
 		%Distinguishers = P#population.distinguishers,
 		%Objectives = P#population.objectives,
-		update_HallOfFame_Population(Population_Id),
-		NewGen_Population=select(Population_Id,SelectionType)
+		Specie_Ids = P#population.specie_ids,
+		%update_HallOfFame_Population(Population_Id),
+		NewGen_Population=lists:flatten([updateHOF_and_Select(Specie_Id,SelectionType) || Specie_Id <- Specie_Ids])
 	end,
 	{atomic,_} = mnesia:transaction(F).
 
-	update_HallOfFame_Population(Population_Id)->
-		[P] = mnesia:read({population,Population_Id}),
-		PHOF = P#population.hall_of_fame,
-		Specie_Ids = P#population.specie_ids,
-		U_PHOF=lists:flatten([update_HallOfFame_Specie(Specie_Id) || Specie_Id <- Specie_Ids]),
-		U_P=P#population{hall_of_fame=U_PHOF},
-		mnesia:write(U_P).
+	updateHOF_and_Select(Specie_Id,SelectionType)->
+		[S] = mnesia:read({specie,Specie_Id}),
+		%Objectives = S#specie.objectives,
+		Distinguishers = S#specie.hof_distinguishers,
+		Agent_Ids = S#specie.dx_ids,
+		SHOF = S#specie.hall_of_fame,
+		{U_SHOF,Losers}=update_SHOF(SHOF,Agent_Ids,Distinguishers,[]),
+		%io:format("SHOF:~p~nU_SHOF:~p~n",[SHOF,U_SHOF]),
+		U_S = S#specie{hall_of_fame=U_SHOF},
+		mnesia:write(U_S),
 		
-		update_HallOfFame_Specie(Specie_Id)->
-			[S] = mnesia:read({specie,Specie_Id}),
-			%Objectives = S#specie.objectives,
-			Distinguishers = S#specie.hof_distinguishers,
-			Agent_Ids = S#specie.dx_ids,
-			SHOF = S#specie.hall_of_fame,
-			Champion_Designators = to_champion_form(Agent_Ids,Distinguishers,[]),
-			U_SHOF=update_HallOfFame_Specie(SHOF,Champion_Designators),
-			U_S = S#specie{hall_of_fame=U_SHOF},
-			mnesia:write(U_S),
-			U_SHOF.
+		NewGen_SpecieAgents=case ?INTERACTIVE_SELECTION of
+			false ->
+				?MODULE:SelectionType(Specie_Id,Losers);
+			true ->%io:format("U_SHOF:~p~n",[U_SHOF]),
+				interactive_evolution:select(Specie_Id,Losers)
+		end,
+		%NewGen_SpecieAgents=?MODULE:evolvability_research(Specie_Id,RemainingChampionDesignators),%USE THIS TO TAKE into account the evolvability or robustness.
+		%io:format("NewGen_SpecieAgents:~p~n",[NewGen_SpecieAgents]),
+		NewGen_SpecieAgents.
+		
+		update_SHOF(SHOF,[Agent_Id|Agent_Ids],Distinguishers,Acc)->
+			case update_SHOF(SHOF,Agent_Id,Distinguishers) of
+				{U_SHOF,undefined} ->
+					update_SHOF(U_SHOF,Agent_Ids,Distinguishers,Acc);
+				{U_SHOF,Loser} ->
+					update_SHOF(U_SHOF,Agent_Ids,Distinguishers,[Loser|Acc])
+			end;
+		update_SHOF(SHOF,[],_Distinguishers,Acc)->
+			{SHOF,Acc}.
+
+			update_SHOF(SHOF,Agent_Id,Distinguishers)->%Will return {U_SHOF,Champion|undefined}
+				Agent = to_champion_form(SHOF,Agent_Id,Distinguishers),
+				case [C|| C<-SHOF, Agent#champion.hof_fingerprint==C#champion.hof_fingerprint] of %lists:keyfind(Agent#champion.hof_fingerprint, 2, SHOF) of
+						[] ->%Champion with such fingerprint does not exist, thus it is entered, as a stepping stone, into the HOF
+							[A] = mnesia:read({dx,Agent#champion.id}),
+							U_A = A#dx{champion_flag=[true|A#dx.champion_flag]},
+							mnesia:write(U_A),
+							%retrograde_update(A#dx.parent_ids,A#dx.main_fitness,A#dx.fitness,0),
+							{[Agent|SHOF],undefined};
+						Champs ->%Agent exists, and is either entered or not into HOF based on fitness dominance... or behavioral minimal difference.							
+							SHOF_Remainder = SHOF -- Champs,
+							case fitness_domination(Agent,Champs) of
+								false ->
+									case on_pareto_front(Agent,Champs) of
+										false ->
+											case novel_behavior(Agent,Champs) of
+												false ->
+													%io:format("Agent not added:~p~n",[{Agent}]),
+													{SHOF,Agent};
+												U_Champs ->
+													{SHOF_Remainder++U_Champs,undefined}
+											end;
+										U_Champs ->
+											{SHOF_Remainder++U_Champs,undefined}
+									end;
+								U_Champs ->
+									{SHOF_Remainder++U_Champs,undefined}
+							end									
+					end.
 			
-			to_champion_form([Agent_Id|Agent_Ids],Distinguishers,Acc)->
-				[A]=mnesia:read({dx,Agent_Id}),
-				ChampForm = #champion{
-					hof_fingerprint=[specie_identifier:Distinguisher(Agent_Id)|| Distinguisher <- Distinguishers],
-					fitness = A#dx.fitness,%A list of multi objective fitnesses and stuff.
-					main_fitness = A#dx.main_fitness, % A single fitness value that we can use to decide on probability of offspring creation.
-					tot_n = length(A#dx.n_ids),
-					id = Agent_Id,
-					evolvability=A#dx.evolvability,
-					robustness=A#dx.robustness,
-					brittleness=A#dx.brittleness,
-					generation=A#dx.generation
-				},
-				to_champion_form(Agent_Ids,Distinguishers,[ChampForm|Acc]);
-			to_champion_form([],Distinguishers,Acc)->
-				Acc.
-					
-			update_HallOfFame_Specie(SHOF,[Agent|Agents])->
-				U_SHOF=case lists:keyfind(Agent#champion.hof_fingerprint, 2, SHOF) of
-					false ->
-%						%This is also the defining factor with regards to robustness, evolvability, and evolutionary capacitance.
-%						%Here we erase the evolvability and capacitance of the new genotype, since that is not calculatable, and then update that of its ancestors.
-%						%1. Reset E,R,EC,and B parameters. 2. Updated ancestors. 3.
-						[A] = mnesia:read({dx,Agent#champion.id}),
-						retrograde_update(A#dx.parent_ids,A#dx.main_fitness,A#dx.fitness,0),
-						[Agent|SHOF];%An agent of new type, new fingerprint, thus deserving of joining the hall of fame.
-					Champ ->
-						%Champ_Fitness = Champ#champion.fitness,
-						%Champ_Agent_Id = Champ#champion.id,
-						%Champ_Fingerprint = Champ#champion.fingerprint,
-						Dominance=length(Champ#champion.fitness),
-						case length([1||Val<-vecdiff(Agent#champion.fitness,Champ#champion.fitness,[]), Val > 0]) of
-							Dominance -> %Occurs when new agent fully dominates one in the hall of fame.
-								%Agent dominates existing champion
-								%update Champ_Agent_Id, turn shof tag on
-								%update Champ_Agent_Id, turn shof tag off			
-								[ChampA] = mnesia:read({dx,Champ#champion.id}),
+					fitness_domination(Agent,SHOF)->
+						case fitness_domination(Agent,SHOF,[],[]) of
+							{[],_} ->
+								%io:format("NOT ADDING, fitness_domination:~p~n",[{Agent}]),
+								false;
+							{LoserAcc,RemainingChamps}->
+								%io:format("ADDING, fitness_domination:~p~n",[{Agent}]),
 								[A] = mnesia:read({dx,Agent#champion.id}),
-								U_ChampA = ChampA#dx{champion_flag=[lost|ChampA#dx.champion_flag]},%true, false, lost, rentered
 								U_A = A#dx{champion_flag=[true|A#dx.champion_flag]},
-								mnesia:write(U_ChampA),
 								mnesia:write(U_A),
-								lists:keyreplace(Champ#champion.hof_fingerprint, 2, SHOF, Agent);
-							0 ->
-								%Agent is being dominated
-								%do nothing, do not add to SHOF
-								SHOF;
-							_ ->
-								%add to shoff, since belongs to a different specialization, onother point on the parito front
+								[Agent|RemainingChamps]
+						end.
+						fitness_domination(Agent,[Champ|Champs],LoserAcc,Acc)->
+							case Agent#champion.hof_fingerprint == Champ#champion.hof_fingerprint of
+								true ->
+									case length([1||Val<-vecdiff(Agent#champion.fitness,Champ#champion.fitness,[]), Val > 0]) == length(Champ#champion.fitness) of
+										true ->
+											%We should still keep it though, if it's within some range of the dominating agent, and the system does not use genetic exploration.
+											case (Champ#champion.main_fitness > Agent#champion.main_fitness*?MIN_ACCEPTABLE_FITNESS_RATIO) of
+												true ->
+													fitness_domination(Agent,Champs,LoserAcc,[Champ|Acc]);
+												false ->
+													[ChampA] = mnesia:read({dx,Champ#champion.id}),
+													U_ChampA = ChampA#dx{champion_flag=[lost|ChampA#dx.champion_flag]},%true, false, lost, rentered
+													mnesia:write(U_ChampA),
+													fitness_domination(Agent,Champs,[Champ|LoserAcc],Acc)
+											end;
+										false ->
+											{[],void}
+									end;
+								false ->
+									fitness_domination(Agent,Champs,LoserAcc,[Champ|Acc])
+							end;
+						fitness_domination(_Agent,[],LoserAcc,Acc)->
+							{LoserAcc,Acc}.
+					
+					on_pareto_front(Agent,SHOF)->
+						case opf(Agent,SHOF) of
+							false ->
+								%io:format("NOT ADDING, on_pareto_front:~p~n",[{Agent}]),
+								false;
+							true ->
+								%io:format("ADDING, on_pareto_front:~p~n",[{Agent}]),
+								[A] = mnesia:read({dx,Agent#champion.id}),
+								U_A = A#dx{champion_flag=[true|A#dx.champion_flag]},
+								mnesia:write(U_A),
 								[Agent|SHOF]
-						end
-				end,
-				update_HallOfFame_Specie(U_SHOF,Agents);
-			update_HallOfFame_Specie(SHOF,[])->
-				SHOF.
+						end.
+							
+						opf(Agent,[Champ|Champs])->
+							case length([1||Val<-vecdiff(Agent#champion.fitness,Champ#champion.fitness,[]), Val > 0]) > 0 of
+								true ->
+									opf(Agent,Champs);
+								false ->
+									false
+							end;
+						opf(_Agent,[])->
+							true.
+							
+					novel_behavior(Agent,SHOF)->
+						Minimal_Novelty=case get(minimal_novelty) of
+							undefined ->
+								put(minimal_novelty,2),
+								2;
+							Val ->
+								Val
+						end,
+						MainFitness_List = [C#champion.main_fitness || C<-SHOF],
+						SHOF_AvgFitness = functions:avg(MainFitness_List),
+						SHOF_STD = functions:std(MainFitness_List,SHOF_AvgFitness,[]),
+						%Minimal_Novelty = 2,
+						Minimal_Fitness = SHOF_AvgFitness-0.1*abs(SHOF_AvgFitness),
+						case (lists:min(Agent#champion.behavioral_differences) > Minimal_Novelty) and (Agent#champion.main_fitness > Minimal_Fitness) of
+							true ->
+								%io:format("ADDING, and the min different is:~p~n",[{lists:min(Agent#champion.behavioral_differences),Minimal_Novelty,Agent#champion.behavioral_differences}]),
+								put(minimal_novelty,Minimal_Novelty+Minimal_Novelty*0.5+0.05),
+								[A] = mnesia:read({dx,Agent#champion.id}),
+								U_A = A#dx{champion_flag=[true|A#dx.champion_flag]},
+								mnesia:write(U_A),
+								[Agent|SHOF];
+							false ->
+								%io:format("NOT Adding, and the min different is:~p~n",[{lists:min(Agent#champion.behavioral_differences),Minimal_Novelty,Agent#champion.behavioral_differences}]),
+								put(minimal_novelty,Minimal_Novelty-Minimal_Novelty*0.05+0.05),
+								false
+						end.
+					
+					to_champion_form(SHOF,Agent_Id,Distinguishers)->
+						[A]=mnesia:read({dx,Agent_Id}),
+						Behavioral_Differences=case ?BEHAVIORAL_TRACE of
+							true ->%io:format("behavioral trace:~p~n",[A#dx.behavioral_trace]),
+								case phenotypic_diversity:compare_behavior(SHOF,A#dx.behavioral_trace) of
+									[]->
+										[0];
+									Comparisons ->
+										Comparisons
+								end;
+							false ->
+								[0]
+						end,
+						#champion{
+							hof_fingerprint=[specie_identifier:Distinguisher(Agent_Id)|| Distinguisher <- Distinguishers],
+							fitness = A#dx.fitness,%A list of multi objective fitnesses and stuff.
+							main_fitness = A#dx.main_fitness, % A single fitness value that we can use to decide on probability of offspring creation.
+							tot_n = length(A#dx.n_ids),
+							id = Agent_Id,
+							evolvability=A#dx.evolvability,
+							robustness=A#dx.robustness,
+							brittleness=A#dx.brittleness,
+							generation=A#dx.generation,
+							behavioral_differences = Behavioral_Differences
+						}.
 				
 				vecdiff([A|V1],[B|V2],Acc)->
 					vecdiff(V1,V2,[A-B|Acc]);
@@ -757,30 +844,17 @@ selection(Population_Id,SelectionType)->
 					retrograde_update(A#dx.parent_ids,Main_Fitness,Fitness,DepthIndex+1);
 				retrograde_update([],_Main_Fitness,_Fitness,_Depth_Index)->
 					ok.
-		
-	select(Population_Id,SelectionType)->%returns a list of ids of new generation of agents for a population
-		%Calculate modified fitness using fitness postprocessor of the agents in the hall of fame
-		%Based on selection type, compose the new population
-		%Select should be flexible enough such that we can either use the HOF agents only, or DX_Ids agents only, or a combination of both, based on the selection algorithm.
-		[P] = mnesia:read({population,Population_Id}),
-		Specie_Ids = P#population.specie_ids,
-		%io:format("Specie_Ids:~p~n",[Specie_Ids]),
-		io:format("SelectionType:~p~n",[SelectionType]),
-		Result = lists:flatten([?MODULE:SelectionType(Population_Id,Specie_Id) || Specie_Id <- Specie_Ids]),
-%Result = lists:flatten([?MODULE:evolvability_research(Population_Id,Specie_Id) || Specie_Id <- Specie_Ids]),		
-		%io:format("Result:~p~n",[Result]),
-		Result.
 	
-		evolvability_research(Population_Id,Specie_Id)->
+		evolvability_research(Specie_Id)->
 			[S] = mnesia:read({specie,Specie_Id}),
 			io:format("S:~p~n",[S]),
 			mnesia:write(S#specie{dx_ids=[]}),
 			Distinguishers = S#specie.hof_distinguishers,
 			Agent_Ids = get_SpecieAgentIds(Specie_Id),
-			Champions=to_champion_form(Agent_Ids,Distinguishers,[]),
+			Champions=[to_champion_form(S#specie.hall_of_fame,Agent_Id,Distinguishers) || Agent_Id <-Agent_Ids],
 			FitnessScaled=[{Champ#champion.main_fitness*math:pow(1.1,Champ#champion.evolvability),Champ#champion.id}||Champ<-Champions,Champ#champion.generation>0],
 			TotFitness = lists:sum([Fitness || {Fitness,_Id}<-FitnessScaled]),
-			NewGen_Ids=choose_Winners(Population_Id,Specie_Id,FitnessScaled,TotFitness,[],[],?SPECIE_SIZE_LIMIT),
+			NewGen_Ids=choose_Winners(Specie_Id,FitnessScaled,TotFitness,[],[],?SPECIE_SIZE_LIMIT),
 			io:format("NewGen_Ids:~p~n",[NewGen_Ids]),
 			mnesia:write(S#specie{dx_ids=NewGen_Ids}),
 			NewGen_Ids.
@@ -795,38 +869,40 @@ selection(Population_Id,SelectionType)->
 					%io:format("Generation:~p Agent Id:~p~n",[Generation,Agent_Id]),
 					lists:append(A#dx.offspring_ids,[get_GeneticLineIds(Id,Generation+1) || Id <- A#dx.offspring_ids]).
 
-		hof_competition(Population_Id,Specie_Id)->%returns a list of new generation of agents for a single specie
+		hof_competition(Specie_Id,RemainingChampionDesignators)->%returns a list of new generation of agents for a single specie
 			[S] = mnesia:read({specie,Specie_Id}),
-			io:format("S:~p~n",[S]),
+			%io:format("S:~p~n",[S]),
 			mnesia:write(S#specie{dx_ids=[]}),
 			SHOF = S#specie.hall_of_fame,
 			NewGen_Ids=case ?SHOF_RATIO < 1 of
 				true ->
 					Agent_Ids = S#specie.dx_ids,
 					Distinguishers = S#specie.hof_distinguishers,
-					io:format("SHOF:~p~n",[SHOF]),
-					Actives = to_champion_form(Agent_Ids,Distinguishers,[]) -- SHOF,
-					io:format("Actives:~p~n",[Actives]),
+					%Actives = to_champion_form(Agent_Ids,Distinguishers,[]) -- SHOF,
+					Actives = RemainingChampionDesignators,
+					%io:format("SHOF:~p~n",[SHOF]),
+					%io:format("Actives:~p~n",[Actives]),
 					SHOF_FitnessScaled=[{Champ#champion.main_fitness/math:pow(Champ#champion.tot_n,?EFF),Champ#champion.id}||Champ<-SHOF],
 					Active_FitnessScaled=[{Ac#champion.main_fitness/math:pow(Ac#champion.tot_n,?EFF),Ac#champion.id}||Ac<-Actives],
 					TotFitnessActives = lists:sum([Main_Fitness || {Main_Fitness,_Id}<-Active_FitnessScaled]),
 					TotFitnessSHOFs = lists:sum([Main_Fitness || {Main_Fitness,_Id}<-SHOF_FitnessScaled]),
-					io:format("TotFitnessActives:~p~nTotFitnessSHOFs:~p~n",[TotFitnessActives,TotFitnessSHOFs]),
-					choose_Winners(Population_Id,Specie_Id,Active_FitnessScaled,TotFitnessActives,[],[],round((1-?SHOF_RATIO)*?SPECIE_SIZE_LIMIT))++
-					choose_Winners(Population_Id,Specie_Id,SHOF_FitnessScaled,TotFitnessSHOFs,[],[],round(?SHOF_RATIO*?SPECIE_SIZE_LIMIT));
+					%io:format("TotFitnessActives:~p~nTotFitnessSHOFs:~p~n",[TotFitnessActives,TotFitnessSHOFs]),
+					choose_Winners(Specie_Id,Active_FitnessScaled,TotFitnessActives,[],[],round((1-?SHOF_RATIO)*?SPECIE_SIZE_LIMIT))++
+					choose_Winners(Specie_Id,SHOF_FitnessScaled,TotFitnessSHOFs,[],[],round(?SHOF_RATIO*?SPECIE_SIZE_LIMIT));
 				false ->
-					io:format("SHOF:~p~n",[SHOF]),
+					%io:format("SHOF:~p~n",[SHOF]),
 					Allotments=[{Champ#champion.main_fitness/math:pow(Champ#champion.tot_n,?EFF),Champ#champion.id}||Champ<-SHOF],
-					io:format("Allotments:~p~n",[Allotments]),
+					%io:format("Allotments:~p~n",[Allotments]),
 					Tot = lists:sum([Main_Fitness || {Main_Fitness,_Id}<-Allotments]),
-					io:format("Tot:~p~n",[Tot]),
-					choose_Winners(Population_Id,Specie_Id,Allotments,Tot,[],[],?SPECIE_SIZE_LIMIT)
+					%io:format("Tot:~p~n",[Tot]),
+					choose_Winners(Specie_Id,Allotments,Tot,[],[],?SPECIE_SIZE_LIMIT)
 			end,
 			io:format("NewGen_Ids:~p~n",[NewGen_Ids]),
-			mnesia:write(S#specie{dx_ids=NewGen_Ids}),
+			[U_S] = mnesia:read({specie,Specie_Id}),
+			mnesia:write(U_S#specie{dx_ids=NewGen_Ids}),
 			NewGen_Ids.
 		
-		hof_rank(Population_Id,Specie_Id)->
+		hof_rank(Specie_Id,RemainingChampionDesignators)->
 			[S] = mnesia:read({specie,Specie_Id}),
 			io:format("S:~p~n",[S]),
 			mnesia:write(S#specie{dx_ids=[]}),
@@ -835,7 +911,8 @@ selection(Population_Id,SelectionType)->
 				true ->
 					Agent_Ids = S#specie.dx_ids,
 					Distinguishers = S#specie.hof_distinguishers,
-					Actives = to_champion_form(Agent_Ids,Distinguishers,[]) -- SHOF,
+					%Actives = to_champion_form(Agent_Ids,Distinguishers,[]) -- SHOF,
+					Actives = RemainingChampionDesignators,
 					io:format("SHOF:~p~n",[SHOF]),
 					io:format("Actives:~p~n",[Actives]),
 					Actives_Ranked=assign_rank(lists:sort([{Ac#champion.main_fitness,Ac#champion.id}||Ac<-Actives]), lists:seq(1,length(Actives)),[]),
@@ -843,17 +920,18 @@ selection(Population_Id,SelectionType)->
 					TotFitnessActives = lists:sum([Main_Fitness || {Main_Fitness,_Id}<-Actives_Ranked]),
 					TotFitnessSHOFs = lists:sum([Main_Fitness || {Main_Fitness,_Id}<-SHOF_Ranked]),
 					io:format("Actives_Ranked:~p~nSHOF_Ranked:~p~n",[Actives_Ranked,SHOF_Ranked]),
-					choose_Winners(Population_Id,Specie_Id,Actives_Ranked,TotFitnessActives,[],[],round((1-?SHOF_RATIO)*?SPECIE_SIZE_LIMIT))++
-					choose_Winners(Population_Id,Specie_Id,SHOF_Ranked,TotFitnessSHOFs,[],[],round(?SHOF_RATIO*?SPECIE_SIZE_LIMIT));
+					choose_Winners(Specie_Id,Actives_Ranked,TotFitnessActives,[],[],round((1-?SHOF_RATIO)*?SPECIE_SIZE_LIMIT))++
+					choose_Winners(Specie_Id,SHOF_Ranked,TotFitnessSHOFs,[],[],round(?SHOF_RATIO*?SPECIE_SIZE_LIMIT));
 					
 				false ->
 					SHOF = S#specie.hall_of_fame,
 					Allotments=assign_rank(lists:sort([{Champ#champion.main_fitness,Champ#champion.id}||Champ<-SHOF]),lists:seq(1,length(SHOF)),[]),
 					Tot = lists:sum([Val || {Val,_Id}<-Allotments]),
-					choose_Winners(Population_Id,Specie_Id,Allotments,Tot,[],[],?SPECIE_SIZE_LIMIT)
+					choose_Winners(Specie_Id,Allotments,Tot,[],[],?SPECIE_SIZE_LIMIT)
 			end,
 			io:format("NewGen_Ids:~p~n",[NewGen_Ids]),
-			mnesia:write(S#specie{dx_ids=NewGen_Ids}),
+			[U_S] = mnesia:read({specie,Specie_Id}),
+			mnesia:write(U_S#specie{dx_ids=NewGen_Ids}),
 			NewGen_Ids.
 			
 			assign_rank([{_MainFitness,Agent_Id}|Champions],[Rank|RankList],Acc)->
@@ -862,19 +940,21 @@ selection(Population_Id,SelectionType)->
 				io:format("Rank:~p~n",[Acc]),
 				Acc.
 			
-		hof_top3(Population_Id,Specie_Id)->
+		hof_top3(Specie_Id,_RemainingChampionDesignators)->
 			[S] = mnesia:read({specie,Specie_Id}),
 			mnesia:write(S#specie{dx_ids=[]}),
 			SHOF = S#specie.hall_of_fame,
 			Allotments = lists:sublist(lists:reverse(lists:sort([{Champ#champion.main_fitness,Champ#champion.id}||Champ<-SHOF])),3),
 			Tot = lists:sum([Val || {Val,_Id}<-Allotments]),
+			io:format("SHOF:~p~n",[SHOF]),
 			io:format("Allotments:~p~n",[Allotments]),
-			NewGen_Ids=choose_Winners(Population_Id,Specie_Id,Allotments,Tot,[],[],?SPECIE_SIZE_LIMIT),
+			NewGen_Ids=choose_Winners(Specie_Id,Allotments,Tot,[],[],?SPECIE_SIZE_LIMIT),
 			io:format("NewGen_Ids:~p~n",[NewGen_Ids]),
-			mnesia:write(S#specie{dx_ids=NewGen_Ids}),
+			[U_S] = mnesia:read({specie,Specie_Id}),
+			mnesia:write(U_S#specie{dx_ids=NewGen_Ids}),
 			NewGen_Ids.
 		
-		hof_efficiency(Population_Id,Specie_Id)->
+		hof_efficiency(Specie_Id,RemainingChampionDesignators)->
 			[S] = mnesia:read({specie,Specie_Id}),
 			mnesia:write(S#specie{dx_ids=[]}),
 			SHOF = S#specie.hall_of_fame,
@@ -882,7 +962,8 @@ selection(Population_Id,SelectionType)->
 				true ->
 					Agent_Ids = S#specie.dx_ids,
 					Distinguishers = S#specie.hof_distinguishers,
-					Actives = to_champion_form(Agent_Ids,Distinguishers,[]),
+					%Actives = to_champion_form(Agent_Ids,Distinguishers,[]),
+					Actives = RemainingChampionDesignators,
 					io:format("SHOF:~p~n",[SHOF]),
 					io:format("Actives:~p~n",[Actives]),
 					Active_NeuralEfficiencyScaled=[{Ac#champion.main_fitness/Ac#champion.tot_n,Ac#champion.id}||Ac<-Actives],
@@ -890,21 +971,22 @@ selection(Population_Id,SelectionType)->
 					TotFitnessActives = lists:sum([Main_Fitness || {Main_Fitness,_Id}<-Active_NeuralEfficiencyScaled]),
 					TotFitnessSHOFs = lists:sum([Main_Fitness || {Main_Fitness,_Id}<-SHOF_NeuralEfficiencyScaled]),
 					io:format("TotFitnessActives:~p~nTotFitnessSHOFs:~p~n",[TotFitnessActives,TotFitnessSHOFs]),
-					choose_Winners(Population_Id,Specie_Id,Active_NeuralEfficiencyScaled,TotFitnessActives,[],[],round((1-?SHOF_RATIO)*?SPECIE_SIZE_LIMIT))++
-					choose_Winners(Population_Id,Specie_Id,SHOF_NeuralEfficiencyScaled,TotFitnessSHOFs,[],[],round(?SHOF_RATIO*?SPECIE_SIZE_LIMIT));
+					choose_Winners(Specie_Id,Active_NeuralEfficiencyScaled,TotFitnessActives,[],[],round((1-?SHOF_RATIO)*?SPECIE_SIZE_LIMIT))++
+					choose_Winners(Specie_Id,SHOF_NeuralEfficiencyScaled,TotFitnessSHOFs,[],[],round(?SHOF_RATIO*?SPECIE_SIZE_LIMIT));
 				false ->
 					io:format("SHOF:~p~n",[SHOF]),
 					SHOF_NeuralEfficiencyScaled=[{Champ#champion.main_fitness/Champ#champion.tot_n,Champ#champion.id}||Champ<-SHOF],
 					io:format("SHOF_NeuralEfficiencyScaled:~p~n",[SHOF_NeuralEfficiencyScaled]),
 					TotFitnessSHOFs = lists:sum([Main_Fitness || {Main_Fitness,_Id}<-SHOF_NeuralEfficiencyScaled]),
 					io:format("TotFitnessSHOFs:~p~n",[TotFitnessSHOFs]),
-					choose_Winners(Population_Id,Specie_Id,SHOF_NeuralEfficiencyScaled,TotFitnessSHOFs,[],[],?SPECIE_SIZE_LIMIT)
+					choose_Winners(Specie_Id,SHOF_NeuralEfficiencyScaled,TotFitnessSHOFs,[],[],?SPECIE_SIZE_LIMIT)
 			end,
 			io:format("NewGen_Ids:~p~n",[NewGen_Ids]),
-			mnesia:write(S#specie{dx_ids=NewGen_Ids}),
+			[U_S] = mnesia:read({specie,Specie_Id}),
+			mnesia:write(U_S#specie{dx_ids=NewGen_Ids}),
 			NewGen_Ids.
 			
-		hof_random(Population_Id,Specie_Id)->
+		hof_random(Specie_Id,RemainingChampionDesignators)->
 			[S] = mnesia:read({specie,Specie_Id}),
 			mnesia:write(S#specie{dx_ids=[]}),
 			SHOF = S#specie.hall_of_fame,
@@ -912,7 +994,8 @@ selection(Population_Id,SelectionType)->
 				true ->
 					Agent_Ids = S#specie.dx_ids,
 					Distinguishers = S#specie.hof_distinguishers,
-					Actives = to_champion_form(Agent_Ids,Distinguishers,[]),
+					%Actives = to_champion_form(Agent_Ids,Distinguishers,[]),
+					Actives = RemainingChampionDesignators,
 					io:format("SHOF:~p~n",[SHOF]),
 					io:format("Actives:~p~n",[Actives]),
 					Active_RandomScaled=[{1,Ac#champion.id}||Ac<-Actives],
@@ -920,33 +1003,35 @@ selection(Population_Id,SelectionType)->
 					TotFitnessActives = lists:sum([Main_Fitness || {Main_Fitness,_Id}<-Active_RandomScaled]),
 					TotFitnessSHOFs = lists:sum([Main_Fitness || {Main_Fitness,_Id}<-SHOF_RandomScaled]),
 					io:format("TotFitnessActives:~p~nTotFitnessSHOFs:~p~n",[TotFitnessActives,TotFitnessSHOFs]),
-					choose_Winners(Population_Id,Specie_Id,Active_RandomScaled,TotFitnessActives,[],[],round((1-?SHOF_RATIO)*?SPECIE_SIZE_LIMIT))++
-					choose_Winners(Population_Id,Specie_Id,SHOF_RandomScaled,TotFitnessSHOFs,[],[],round(?SHOF_RATIO*?SPECIE_SIZE_LIMIT));
+					choose_Winners(Specie_Id,Active_RandomScaled,TotFitnessActives,[],[],round((1-?SHOF_RATIO)*?SPECIE_SIZE_LIMIT))++
+					choose_Winners(Specie_Id,SHOF_RandomScaled,TotFitnessSHOFs,[],[],round(?SHOF_RATIO*?SPECIE_SIZE_LIMIT));
 				false ->
 					SHOF = S#specie.hall_of_fame,
 					io:format("SHOF:~p~n",[SHOF]),
 					SHOF_RandomScaled=[{1,Champ#champion.id}||Champ<-SHOF],
 					TotFitnessSHOFs = lists:sum([Main_Fitness || {Main_Fitness,_Id}<-SHOF_RandomScaled]),
 					io:format("TotalOffspring:~p~n",[round(?SHOF_RATIO*?SPECIE_SIZE_LIMIT)]),
-					choose_Winners(Population_Id,Specie_Id,SHOF_RandomScaled,TotFitnessSHOFs,[],[],?SPECIE_SIZE_LIMIT)
+					choose_Winners(Specie_Id,SHOF_RandomScaled,TotFitnessSHOFs,[],[],?SPECIE_SIZE_LIMIT)
 			end,
 			io:format("NewGen_Ids:~p~n",[NewGen_Ids]),
-			mnesia:write(S#specie{dx_ids=NewGen_Ids}),
+			[U_S] = mnesia:read({specie,Specie_Id}),
+			mnesia:write(U_S#specie{dx_ids=NewGen_Ids}),
 			NewGen_Ids.
 
-			choose_Winners(Population_Id,Specie_Id,Agents,TotalFitness,OffspringAcc,ReentryAcc,0)->
+			choose_Winners(Specie_Id,Agents,TotalFitness,OffspringAcc,ReentryAcc,0)->
 				reenter(ReentryAcc,Specie_Id),
 				OffspringAcc++ReentryAcc;
-			choose_Winners(Population_Id,Specie_Id,Agents,TotalFitness,OffspringAcc,ReentryAcc,AgentIndex)->
-				case choose_Winner(Population_Id,Specie_Id,Agents,(random:uniform(100)/100)*TotalFitness,0) of
-					{OffspringId,offspring}->
-						choose_Winners(Population_Id,Specie_Id,Agents,TotalFitness,[OffspringId|OffspringAcc],ReentryAcc,AgentIndex-1);
-					{Agent_Id,reentry}->
+			choose_Winners(Specie_Id,Agents,TotalFitness,OffspringAcc,ReentryAcc,AgentIndex)->
+				%io:format("1~n"),
+				case choose_Winner(Specie_Id,Agents,(random:uniform(100)/100)*TotalFitness,0) of
+					{OffspringId,offspring}->%io:format("2~n"),
+						choose_Winners(Specie_Id,Agents,TotalFitness,[OffspringId|OffspringAcc],ReentryAcc,AgentIndex-1);
+					{Agent_Id,reentry}->%io:format("3~n"),
 						case lists:member(Agent_Id,ReentryAcc) of
-							true ->
-								choose_Winners(Population_Id,Specie_Id,Agents,TotalFitness,OffspringAcc,ReentryAcc,AgentIndex);
-							false ->
-								choose_Winners(Population_Id,Specie_Id,Agents,TotalFitness,OffspringAcc,[Agent_Id|ReentryAcc],AgentIndex-1)
+							true ->%io:format("4~n"),
+								choose_Winners(Specie_Id,Agents,TotalFitness,OffspringAcc,ReentryAcc,AgentIndex);
+							false ->%io:format("5~n"),
+								choose_Winners(Specie_Id,Agents,TotalFitness,OffspringAcc,[Agent_Id|ReentryAcc],AgentIndex-1)
 						end
 						
 				end.
@@ -967,7 +1052,7 @@ selection(Population_Id,SelectionType)->
 				reenter([],_Specie_Id)->
 					ok.
 				
-			choose_Winner(Population_Id,Specie_Id,[{_PortionSize,Agent_Id}],_Index,_Acc)->
+			choose_Winner(Specie_Id,[{_PortionSize,Agent_Id}],_Index,_Acc)->
 				case random:uniform() =< ?REENTRY_PROBABILITY of
 					true ->
 						{Agent_Id,reentry};
@@ -983,10 +1068,10 @@ selection(Population_Id,SelectionType)->
 						%choose agent as parent
 						%create clone, mutate clone, return offspring
 				end;
-			choose_Winner(Population_Id,Specie_Id,[{PortionSize,Agent_Id}|Allotments],Index,Acc)->
-				io:format("Index:~p~n",[Index]),
+			choose_Winner(Specie_Id,[{PortionSize,Agent_Id}|Allotments],Index,Acc)->
+				%io:format("Index:~p~n",[Index]),
 				case (Index > Acc) and (Index =< Acc+PortionSize) of
-					true ->io:format("WIndex:~p~n",[Index]),
+					true ->%io:format("WIndex:~p~n",[Index]),
 						case random:uniform() =< ?REENTRY_PROBABILITY of
 							true ->
 								{Agent_Id,reentry};
@@ -1003,7 +1088,7 @@ selection(Population_Id,SelectionType)->
 								%create clone, mutate clone, return offspring
 						end;
 					false ->
-						choose_Winner(Population_Id,Specie_Id,Allotments,Index,Acc+PortionSize)
+						choose_Winner(Specie_Id,Allotments,Index,Acc+PortionSize)
 				end.
 		
 		extract_DXSummaries([DX_Id|DX_Ids],Acc)->
@@ -1173,9 +1258,6 @@ gather_STATS(Population_Id,EvaluationsAcc,OpModes)->
 	io:format("Result:~p~n",[Result]).
 	
 	update_SpecieSTAT(Specie_Id,TimeStamp,OpModes)->
-		%-record(stat,{avg_subcores=[],avg_neurons=[],avg_fitness,max_fitness,min_fitness,avg_diversity=[],evaluations=[],time_stamp}).
-		%-record(trace,{stats=[],tot_evaluations=0,step_size=500,next_step=500}).
-		%-record(specie,{id,morphology,constraint,trace=#trace{},cur_stat,avg_fitness,stagnation_factor,dx_ids=[],topdx_ids=[],championdx_ids=[],population_id}).
 		Specie_Evaluations = get({evaluations,Specie_Id}),
 		put({evaluations,Specie_Id},0),
 		[S] = mnesia:dirty_read({specie,Specie_Id}),
@@ -1207,11 +1289,11 @@ gather_STATS(Population_Id,EvaluationsAcc,OpModes)->
 		U_Trace = T#trace{stats=U_STATS,
 			tot_evaluations=T#trace.tot_evaluations+Specie_Evaluations
 		},
-		mnesia:dirty_write(S#specie{trace=U_Trace}),
+		mnesia:write(S#specie{trace=U_Trace}),
 		STAT.
 
 calculate_SpecieAvgNodes({specie,S})->
-	%io:format("SpecieAvgNodes:~p~n",[S]),
+	io:format("SpecieAvgNodes:~p~n",[S]),
 	DX_Ids = S#specie.dx_ids,
 	calculate_AvgNodes(DX_Ids,[],[]);
 calculate_SpecieAvgNodes(Specie_Id)->
@@ -1243,10 +1325,12 @@ calculate_PopulationDiversity(_Tot_Population_Id,[],Acc)->
 
 	calculate_SpecieDiversity({specie,S})->
 		DX_Ids = S#specie.dx_ids,
-		Diversity = calculate_diversity(DX_Ids);
+		length(S#specie.hall_of_fame);
+		%Diversity = calculate_diversity(DX_Ids);
 	calculate_SpecieDiversity(Specie_Id)->
 		[S] = mnesia:dirty_read({specie,Specie_Id}),
-		calculate_SpecieDiversity({specie,S}).
+		length(S#specie.hall_of_fame).
+		%calculate_SpecieDiversity({specie,S}).
 		
 		calculate_diversity(DX_Ids)->
 			calculate_diversity(DX_Ids,[]).

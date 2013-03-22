@@ -23,6 +23,8 @@
 pole2_balancing(ExoSelf,Output,ActuatorId,Parameters)->
 	%preprocess:
 	[Force|_] = Output,
+	%Force = (F-0.5)*2,
+	%io:format("Force:~p~n",[Force]),
 	%send_signal
 %	Scape_PId = get(scape_PId),
 %	{AFF,F} = gen_server:call(Scape_PId,{control,pole2_balancing,{actuator,Force,ActuatorId,Parameters}}).
@@ -147,7 +149,6 @@ two_wheels(ExoSelf,Output,ActuatorId,Parameters)->
 	GuardFitness=case get(guard) of
 		{_GCooloff,_GCommandHold,DesiredRange,[R,_Theta],1} ->
 			%RangeDif=abs(DesiredRange-R),
-			%io:format("here~n"),
 			GImportance=1,
 			(1/(R+1))*GImportance;
 		_ ->
@@ -175,6 +176,86 @@ shoot(ExoSelf,Output,ActuatorId,Parameters)->
 	{Progress,Fitness}=gen_server:call(get(scape),{actuator,get(morphology),shoot,Output}),
 	{Progress,[Fitness]}.
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% XOR-AND-XOR %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+xorandxor(ExoSelf,[Output],ActuatorId,Parameters)->
+	%Output=complex:descale(0,math:pi(),O),
+	%io:format("O:~p Output:~p~n",[O,Output]),
+	%io:format("[Output]:~p~n",[{Output,functions:bip(Output)}]),
+	
+	case get(xorandxor) of
+		[{Q,A}]->
+			Progress = 1,
+			erase(xorandxor);
+		[{Q,A}|TruthTable] ->
+			Progress = 0,
+			put(xorandxor,TruthTable)
+	end,
+	%io:format("Output:~p~n",[{functions:bip(Output),Output,A}]),
+	Fitness = case Progress == 1 of
+		true ->
+			2 - (1/16)*abs(Output-A);
+		false ->
+			-(1/16)*abs(Output-A)
+	end,
+	case get(opmode) of
+		test ->
+			{Progress,[Fitness,0,0]};
+		_ ->
+			{Progress,[Fitness]}
+	end.
+
+	bo2bi(true)->1;
+	bo2bi(false)->0.
+	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% TMAZE %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+dtm_SendOutput(ExoSelf,Output,ActuatorId,Parameters)->
+	{Fitness,HaltFlag}=tmaze:dtm_sim(ExoSelf,move,Output),
+	%io:format("self():~p Fitness:~p HaltFlag:~p~n",[self(),Fitness,HaltFlag]),
+	case get(opmode) of
+		test ->
+			{HaltFlag,[Fitness,0,0]};
+		_ ->
+			{HaltFlag,[Fitness]}
+	end.
+	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% FUNCTION APPROXIMATION %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+function_approximation(ExoSelf,Output,ActuatorId,Parameters)->
+	case get(fun_approximation) of
+		[{I,EO}|Points]->
+			HaltFlag=0,
+			put(fun_approximation,Points);
+		[{I,EO}]->
+			HaltFlag=1,
+			erase(fun_approximation)
+	end,
+	Distance=euclidean_distance(Output,EO,0),
+	FitnessAcc = get(fun_approximation_fitness),
+	Fitness=case HaltFlag of
+		0 ->
+			put(fun_approximation_fitness,FitnessAcc+Distance),
+			0;
+		1 ->
+			Val=FitnessAcc+Distance,
+			Limit = 0.0001,
+			case Val < Limit of
+				 true ->
+					1/Limit;
+				Val ->
+					1/Val
+			end
+	end,
+	case get(opmode) of
+		test ->
+			{HaltFlag,[Fitness,0,0]};
+		_ ->
+			{HaltFlag,[Fitness]}
+	end.
+	
+	euclidean_distance([Val1|V1],[Val2|V2],Acc)->
+		euclidean_distance(V1,V2,math:pow(Val1-Val2,2)+Acc);
+	euclidean_distance([],[],Acc)->
+		math:sqrt(Acc).
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% FX ACTUATORS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 fx_Trade(ExoSelf,Output,ActuatorId,Parameters)->
 	case get(fx_pid) of
 		undefined ->
@@ -195,7 +276,8 @@ fx_Trade(ExoSelf,Output,ActuatorId,Parameters)->
 					{Progress,[Fitness]}
 			end
 	end.
-	
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% ABC_PRED ACTUATORS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
 abc_pred(ExoSelf,[Output],ActuatorId,Parameters)->
 	[TableName,StartIndex,EndIndex,StartBenchIndex,EndBenchIndex,StartTestIndex,EndTestIndex] = Parameters,
 	case get(abc_pred) of
@@ -246,6 +328,7 @@ abc_pred(ExoSelf,[Output],ActuatorId,Parameters)->
 			end
 	end.
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% EPIWALKERS ACTUATORS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 epiwalker_Mark(ExoSelf,Output,ActuatorId,Parameters)->
 	{Progress,Fitness,Accuracy,Sensitivity,Specificity,MCC} = epiwalker_act({mark,Output}),
 %	io:format("Result:~p~n",[Result]),
@@ -447,7 +530,8 @@ epiwalker_MarkAART(ExoSelf,Output,ActuatorId,Parameters)->
 %				{0,Fitness,TP,TN}
 				{0,0,0,0,0,0}
 		end.
-		
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% AART_CLASSIFIER ACTUATORS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%		
 aart_classifier(ExoSelf,Output,ActuatorId,Parameters)->
 	%io:format("aart_classifier:~p~n",[{ExoSelf,Output,ActuatorId,Parameters}]),
 	{Progress,Reward}=classification_scape:classify_act(Output),

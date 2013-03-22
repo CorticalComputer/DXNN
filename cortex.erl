@@ -101,11 +101,11 @@ cortex(ExoSelf,Id,State,CT,[{Actuator,[CF_PId|N_Ids]}|CF],CFAcc,OAcc,OpMode)->
 			%io:format("Just sent msg:~p~n",[{self(),backup,{undefined,undefined,[]}}]),
 			cortex:cortex(ExoSelf,Id,State,CT,[{Actuator,[CF_PId|N_Ids]}|CF],CFAcc,OAcc,OpMode);
 		{ExoSelf,terminate}->
-			void;
-		Msg ->
+			void
+		%Msg ->
 			%io:format("Unkown message:~p~n",[Msg]),
-			cortex:cortex(ExoSelf,Id,State,CT,[{Actuator,[CF_PId|N_Ids]}|CF],CFAcc,OAcc,OpMode)
-		after 20000 ->
+			%cortex:cortex(ExoSelf,Id,State,CT,[{Actuator,[CF_PId|N_Ids]}|CF],CFAcc,OAcc,OpMode)
+		after 100000 ->
 			io:format("********ERROR: Neural_Cortex Crashed:~p~n",[{ExoSelf,Id,State,CT,[{Actuator,[CF_PId|N_Ids]}|CF],CFAcc,OAcc,OpMode}])
 	end;
 cortex(ExoSelf,Id,State,CT,[{Actuator,[]}|CF],CFAcc,OAcc,OpMode)->
@@ -119,8 +119,16 @@ cortex(ExoSelf,Id,State,CT,[{Actuator,[]}|CF],CFAcc,OAcc,OpMode)->
 cortex(ExoSelf,Id,State,CT,[],[],OAcc,OpMode)->
 %	io:format("Cortex:~p~n",[CFAcc]),
 	%OutputP = lists:reverse(CFAcc),
-	case cortex:OpMode(ExoSelf,State#state.specie_id,OAcc,0,0,undefined) of
-		end_training ->
+	U_State=case ?BEHAVIORAL_TRACE or ?INTERACTIVE_SELECTION of
+		true ->%[io:format("Val:~p~n",[{Val,functions:bip(Val),OAcc}])|| {_A,[Val]}<-OAcc],
+			Act = lists:flatten([Val|| {_A,[Val]}<-OAcc]),
+			Behavior = State#state.behavior,
+			State#state{behavior=lists:append(Act,Behavior)};
+		false ->
+			State
+	end,
+	case cortex:OpMode(ExoSelf,State#state.specie_id,OAcc,0,0,undefined,U_State#state.behavior) of
+		end_training ->%io:format("U_State#state.behavior:~p~n",[U_State#state.behavior]),
 			case State#state.morphology of
 				forex_trader ->
 					get(fx_pid) ! terminate;
@@ -128,12 +136,19 @@ cortex(ExoSelf,Id,State,CT,[],[],OAcc,OpMode)->
 					ok
 			end,
 			%leave_scape(),
+			stop_private_scape(),
 			done;
+		reset_IProfile ->
+			sense(ExoSelf,CT),
+			cortex:cortex(ExoSelf,Id,U_State#state{behavior=[]},CT,U_State#state.cf,[],[],OpMode);
+		revert_IProfile ->
+			sense(ExoSelf,CT),
+			cortex:cortex(ExoSelf,Id,U_State#state{behavior=[]},CT,U_State#state.cf,[],[],OpMode);
 		_ ->
 %			io:format("Cortex:~p CxCT:~p~n",[Id,CT]),
-			sense(ExoSelf,CT)
-	end,
-	cortex:cortex(ExoSelf,Id,State,CT,State#state.cf,[],[],OpMode).
+			sense(ExoSelf,CT),
+			cortex:cortex(ExoSelf,Id,U_State,CT,U_State#state.cf,[],[],OpMode)
+	end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% HYPERCUBE %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 cortex(ExoSelf,Self,Id,State,I,O,CT,CF,Densities,{Substrate,SMode},OpMode)->		
@@ -143,22 +158,31 @@ cortex(ExoSelf,Self,Id,State,I,O,CT,CF,Densities,{Substrate,SMode},OpMode)->
 %			io:format("id:~p OAcc:~p~n",[self(),OAcc]),
 			Formated_OAcc = format_OAcc(OAcc,O,[]), %not a list of lists, and it should be.
 %			io:format("id:~p Formated_OAcc:~p OAcc:~p~n",[self(),Formated_OAcc,OAcc]),
-			case cortex:OpMode(ExoSelf,State#state.specie_id,Formated_OAcc,0,0,undefined) of
+			U_State=case ?BEHAVIORAL_TRACE or ?INTERACTIVE_SELECTION of
+				true ->
+					Act = [Val|| {_A,Val}<-OAcc],
+					Behavior = State#state.behavior,
+					State#state{behavior=[Act|Behavior]};
+				false ->
+					State
+			end,
+			case cortex:OpMode(ExoSelf,State#state.specie_id,Formated_OAcc,0,0,undefined,U_State#state.behavior) of
 				end_training ->
 					%leave_scape(),
-					cortex:cortex(ExoSelf,Self,Id,State,I,O,CT,CF,Densities,{U_Substrate,U_SMode},OpMode);
+					stop_private_scape(),
+					cortex:cortex(ExoSelf,Self,Id,U_State#state{behavior=[]},I,O,CT,CF,Densities,{U_Substrate,U_SMode},OpMode);
 				reset_IProfile ->
 					put(substrate,U_Substrate),
 					Self ! {Self,tik},
-					cortex:cortex(ExoSelf,Self,Id,State,I,O,CT,CF,Densities,{U_Substrate,reset},OpMode);
+					cortex:cortex(ExoSelf,Self,Id,U_State#state{behavior=[]},I,O,CT,CF,Densities,{U_Substrate,reset},OpMode);
 				revert_IProfile ->
 					Old_Substrate = get(substrate),
 					Self ! {Self,tik},
-					cortex:cortex(ExoSelf,Self,Id,State,I,O,CT,CF,Densities,{Old_Substrate,reset},OpMode);
+					cortex:cortex(ExoSelf,Self,Id,U_State#state{behavior=[]},I,O,CT,CF,Densities,{Old_Substrate,reset},OpMode);
 				_ ->
 %					io:format("Cortex:~p CxCT:~p~n",[Id,CT]),
 					Self ! {Self,tik},
-					cortex:cortex(ExoSelf,Self,Id,State,I,O,CT,CF,Densities,{U_Substrate,U_SMode},OpMode)
+					cortex:cortex(ExoSelf,Self,Id,U_State,I,O,CT,CF,Densities,{U_Substrate,U_SMode},OpMode)
 			end;
 		{ExoSelf,terminate}->
 %			io:format("Resulting substrate:~p~n",[Substrate]),
@@ -809,15 +833,85 @@ enter_scape(S)->
 			put(scape,Scape_PId),
 %			io:format("Inside Cortex:: Scape_PId:~p~n",[Scape_PId]),
 			done = gen_server:call(Scape_PId,{enter,Morphology,Specie_Id,Actuators,Sensors,TotNeurons});
+		deceptive ->
+			Physics = undefined,
+			Metabolics = static,
+			Type = deceptive_private,
+			case get(scape) of
+				undefined ->
+					{ok,Scape_PId} = scape:start_link({self(),Type,Physics,Metabolics}),
+					put(scape,Scape_PId);
+				Scape_PId->
+					ok
+			end,
+			done = gen_server:call(Scape_PId,{enter,prey,Specie_Id,Actuators,Sensors,TotNeurons});
+		food_gathering ->
+			Physics = undefined,
+			Metabolics = static,
+			Type = food_gathering,
+			case get(scape) of
+				undefined ->
+					{ok,Scape_PId} = scape:start_link({self(),Type,Physics,Metabolics}),
+					put(scape,Scape_PId);
+				Scape_PId->
+					ok
+			end,
+			done = gen_server:call(Scape_PId,{enter,prey,Specie_Id,Actuators,Sensors,TotNeurons});
+		dangerous_food_gathering ->
+			Physics = undefined,
+			Metabolics = static,
+			Type = food_gathering,
+			case get(scape) of
+				undefined ->
+					{ok,Scape_PId} = scape:start_link({self(),Type,Physics,Metabolics}),
+					put(scape,Scape_PId);
+				Scape_PId->
+					ok
+			end,
+			done = gen_server:call(Scape_PId,{enter,prey,Specie_Id,Actuators,Sensors,TotNeurons});
+		target ->
+			Physics = undefined,
+			Metabolics = static,
+			Type = target_private,
+			case get(scape) of
+				undefined ->
+					{ok,Scape_PId} = scape:start_link({self(),Type,Physics,Metabolics}),
+					put(scape,Scape_PId);
+				Scape_PId->
+					ok
+			end,
+			done = gen_server:call(Scape_PId,{enter,prey,Specie_Id,Actuators,Sensors,TotNeurons});
 		_ ->
 			done
 	end.
-	
+
+stop_private_scape()->
+	case get(morphology) of
+		deceptive ->
+			gen_server:cast(get(scape),{stop,normal});
+		food_gathering ->
+			gen_server:cast(get(scape),{stop,normal});
+		dangerous_food_gathering ->
+			gen_server:cast(get(scape),{stop,normal});
+		target ->
+			gen_server:cast(get(scape),{stop,normal});
+		_ ->
+			done
+	end.
+
 leave_scape()->
 	case get(morphology) of
 		flatlander ->
 			done = gen_server:call(get(scape),leave);
 		prey -> 
+			done = gen_server:call(get(scape),leave);
+		deceptive -> 
+			done = gen_server:call(get(scape),leave);
+		food_gathering -> 
+			done = gen_server:call(get(scape),leave);
+		dangerous_food_gathering -> 
+			done = gen_server:call(get(scape),leave);
+		target -> 
 			done = gen_server:call(get(scape),leave);
 		_ ->
 			done
@@ -828,6 +922,14 @@ reset_avatar()->
 		flatlander ->
 			gen_server:call(get(scape),reset);
 		prey ->
+			gen_server:call(get(scape),reset);
+		deceptive ->
+			gen_server:call(get(scape),reset);
+		food_gathering ->
+			gen_server:call(get(scape),reset);
+		dangerous_food_gathering ->
+			gen_server:call(get(scape),reset);
+		target ->
 			gen_server:call(get(scape),reset);
 		_ ->
 			done
@@ -845,6 +947,14 @@ reenter_scape()->
 			done=gen_server:call(get(scape),{enter,Morphology,Specie_Id,Actuators,Sensors,TotNeurons});
 		prey ->%io:format("Cortex reenter_scape(), organism:~p~n",[self()]),
 			done=gen_server:call(get(scape),{enter,Morphology,Specie_Id,Actuators,Sensors,TotNeurons});
+		deceptive ->
+			done=gen_server:call(get(scape),{enter,prey,Specie_Id,Actuators,Sensors,TotNeurons});
+		food_gathering ->
+			done=gen_server:call(get(scape),{enter,prey,Specie_Id,Actuators,Sensors,TotNeurons});
+		dangerous_food_gathering ->
+			done=gen_server:call(get(scape),{enter,prey,Specie_Id,Actuators,Sensors,TotNeurons});
+		target ->
+			done=gen_server:call(get(scape),{enter,prey,Specie_Id,Actuators,Sensors,TotNeurons});
 		_ ->
 			done
 	end.
@@ -854,7 +964,12 @@ sense(ExoSelf,[{S,N_PIdPs}|CT])->
 	VL = S#sensor.tot_vl,
 	SensorId = S#sensor.id,
 	Parameters=S#sensor.parameters,
-	Input = sensors:Name(VL,SensorId,Parameters),
+	Input = case sensors:Name(VL,SensorId,Parameters) of
+		{Label,Percept} ->
+			Percept;
+		Percept ->
+			Percept
+	end,
 	advanced_fanout(N_PIdPs,Input),
 	sense(ExoSelf,CT);
 sense(_ExoSelf,[])->
@@ -877,7 +992,7 @@ sense(_ExoSelf,[])->
 		done.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% OPMODE %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-gt(ExoSelf,Specie_Id,[{A,Output}|OAcc],FitnessAcc,ProgressAcc,GlobalParameters)->
+gt(ExoSelf,Specie_Id,[{A,Output}|OAcc],FitnessAcc,ProgressAcc,GlobalParameters,Behavior)->
 	%{actuator,Name,ActuatorId,Format,VL,Parameters} = Actuator,
 	Name = A#actuator.name,
 	ActuatorId = A#actuator.id,
@@ -888,9 +1003,8 @@ gt(ExoSelf,Specie_Id,[{A,Output}|OAcc],FitnessAcc,ProgressAcc,GlobalParameters)-
 		goal_reached-> put(goal,reached);
 		_ -> done
 	end,
-	gt(ExoSelf,Specie_Id,OAcc,vector_add(Fitness,FitnessAcc,[]),ProgressAcc+Progress,GlobalParameters);
-gt(ExoSelf,Specie_Id,[],FitnessAcc,AffectProgress,GlobalParameters)->
-	
+	gt(ExoSelf,Specie_Id,OAcc,vector_add(Fitness,FitnessAcc,[]),ProgressAcc+Progress,GlobalParameters,Behavior);
+gt(ExoSelf,Specie_Id,[],FitnessAcc,AffectProgress,GlobalParameters,Behavior)->
 	FitnessType = void,
 	U_FitnessAcc = case get(fitness_acc) of
 		undefined ->
@@ -925,10 +1039,14 @@ gt(ExoSelf,Specie_Id,[],FitnessAcc,AffectProgress,GlobalParameters)->
 					put(instance,1),
 					Avg_Fitness = vector_avg(U_FitnessList,length(U_FitnessList)),
 					%io:format("U_FitnessList:~p Avg_Fitness:~p~n",[U_FitnessList,Avg_Fitness]),
+%case vec1_dominates_vec2(...) or minimal_novelty(Behavior,PrevBehavior,Fitness) of
+					
+					
+					
 					case vec1_dominates_vec2(Avg_Fitness,HighestFitness,?MIN_PIMPROVEMENT) of%vec1_dominates_vec2(U_FitnessAcc,HighestFitness,?MIN_PIMPROVEMENT)
-						true ->
+						true ->%io:format("1Length of behavioral trace:~p~n",[{length(Behavior),self()}]),
 							done = gen_server:call(ExoSelf,{weight_save}),
-							done = gen_server:call(ExoSelf,{backup_request,GlobalParameters}),%%Also make this the point where cortex backs up its parameters.
+							done = gen_server:call(ExoSelf,{backup_request,GlobalParameters,lists:reverse(Behavior)}),%%Also make this the point where cortex backs up its parameters.
 							%io:format("NewFitness:~p~n",[Avg_Fitness]),
 							case Goal of
 								undefined ->
@@ -941,11 +1059,11 @@ gt(ExoSelf,Specie_Id,[],FitnessAcc,AffectProgress,GlobalParameters)->
 							reenter_scape(),
 							done = gen_server:call(ExoSelf,{weight_mutate}),%%Also make this the point where cortex mutates its parameters.
 							reset_IProfile;%In neuron and hypercube, this leads to a nop, and a simple reset tag to have the substrate reset. Whereas in aart can signal a mutation of the categories/classes.
-						false ->
+						false ->%io:format("2Length of behavioral trace:~p~n",[{length(Behavior),self()}]),
 							done = gen_server:call(ExoSelf,{weight_revert}),
 							%io:format("Pid:~p HighestFitness:~p Fitness:~p~n",[self(),HighestFitness,U_FitnessAcc]),
 							case AttemptIndex >= MaxMissedAttempts of
-								true ->
+								true ->%io:format("3Length of behavioral trace:~p~n",[{length(Behavior),self()}]),
 									gen_server:cast(ExoSelf,{self(),fitness,{FitnessType,HighestFitness,Goal}}),
 									%io:format("Pid:~p HighestFitness:~p AttemptIndex:~p~n",[self(),HighestFitness,AttemptIndex]),
 									case Goal of
@@ -964,7 +1082,7 @@ gt(ExoSelf,Specie_Id,[],FitnessAcc,AffectProgress,GlobalParameters)->
 									revert_IProfile %In neuron and hypercube, this leads to a nop, and a simple reset tag to have the substrate reset. Whereas in aart can signal a revertion and then mutation of categories/classes.
 							end
 					end;
-				false->
+				false->%io:format("4Length of behavioral trace:~p~n",[{length(Behavior),self()}]),
 					io:format("Instance:~p Cortex:~p~n",[Instance,self()]),
 					put(fitness_list,U_FitnessList),
 					put(instance,Instance+1),
@@ -975,7 +1093,13 @@ gt(ExoSelf,Specie_Id,[],FitnessAcc,AffectProgress,GlobalParameters)->
 			end
 	end.
 
-validation(ExoSelf,Specie_Id,[{A,Output}|OAcc],FitnessAcc,ProgressAcc,_GlobalParameters)->
+	minimal_novelty(NewBehavior,PrevBehavior,Fitness,PrevFitness)->
+		Score = phenotypic_diversity:gotoh(NewBehavior,PrevBehavior),
+		Minimal_Novelty = 0.5,
+		Minimal_Fitness = PrevFitness-abs(Fitness)*0.1,%10percent
+		(Score >= Minimal_Novelty) and (Fitness >= Minimal_Fitness).
+	
+validation(ExoSelf,Specie_Id,[{A,Output}|OAcc],FitnessAcc,ProgressAcc,_GlobalParameters,_Behavior)->
 	Name = A#actuator.name,
 	ActuatorId = A#actuator.id,
 	Parameters = A#actuator.parameters,
@@ -984,8 +1108,8 @@ validation(ExoSelf,Specie_Id,[{A,Output}|OAcc],FitnessAcc,ProgressAcc,_GlobalPar
 		goal_reached-> put(goal,reached);
 		_ -> done
 	end,
-	validation(ExoSelf,Specie_Id,OAcc,vector_add(Fitness,FitnessAcc,[]),ProgressAcc+Progress,_GlobalParameters);
-validation(ExoSelf,Specie_Id,[],FitnessAcc,AffectProgress,_GlobalParameters)->
+	validation(ExoSelf,Specie_Id,OAcc,vector_add(Fitness,FitnessAcc,[]),ProgressAcc+Progress,_GlobalParameters,_Behavior);
+validation(ExoSelf,Specie_Id,[],FitnessAcc,AffectProgress,_GlobalParameters,_Behavior)->
 	FitnessType = void,
 	U_FitnessAcc = case get(fitness_acc) of
 		undefined ->
@@ -1006,7 +1130,7 @@ validation(ExoSelf,Specie_Id,[],FitnessAcc,AffectProgress,_GlobalParameters)->
 			end_training
 	end.
 	
-test(ExoSelf,Specie_Id,[{A,Output}|OAcc],FitnessAcc,ProgressAcc,_GlobalParameters)->
+test(ExoSelf,Specie_Id,[{A,Output}|OAcc],FitnessAcc,ProgressAcc,_GlobalParameters,_Behavior)->
 	Name = A#actuator.name,
 	ActuatorId = A#actuator.id,
 	Parameters = A#actuator.parameters,
@@ -1015,8 +1139,8 @@ test(ExoSelf,Specie_Id,[{A,Output}|OAcc],FitnessAcc,ProgressAcc,_GlobalParameter
 		goal_reached-> put(goal,reached);
 		_ -> done
 	end,
-	test(ExoSelf,Specie_Id,OAcc,vector_add(Fitness,FitnessAcc,[]),ProgressAcc+Progress,_GlobalParameters);
-test(ExoSelf,Specie_Id,[],FitnessAcc,AffectProgress,_GlobalParameters)->
+	test(ExoSelf,Specie_Id,OAcc,vector_add(Fitness,FitnessAcc,[]),ProgressAcc+Progress,_GlobalParameters,_Behavior);
+test(ExoSelf,Specie_Id,[],FitnessAcc,AffectProgress,_GlobalParameters,_Behavior)->
 	FitnessType = void,
 	U_FitnessAcc = case get(fitness_acc) of
 		undefined ->
@@ -1044,7 +1168,7 @@ test(ExoSelf,Specie_Id,[],FitnessAcc,AffectProgress,_GlobalParameters)->
 	vector_add([],[],Acc)->
 		lists:reverse(Acc).
 			
-championship(ExoSelf,Specie_Id,[{A,Output}|OAcc],FitnessAcc,ProgressAcc)->
+championship(ExoSelf,Specie_Id,[{A,Output}|OAcc],FitnessAcc,ProgressAcc,_GlobalParameters,_Behavior)->
 	Name = A#actuator.name,
 	ActuatorId = A#actuator.id,
 	Parameters = A#actuator.parameters,
@@ -1053,8 +1177,8 @@ championship(ExoSelf,Specie_Id,[{A,Output}|OAcc],FitnessAcc,ProgressAcc)->
 		goal_reached-> put(goal,reached);
 		_ -> done
 	end,
-	championship(ExoSelf,Specie_Id,OAcc,vector_add(Fitness,FitnessAcc,[]),ProgressAcc+Progress);
-championship(ExoSelf,Specie_Id,[],FitnessAcc,AffectProgress)->
+	championship(ExoSelf,Specie_Id,OAcc,vector_add(Fitness,FitnessAcc,[]),ProgressAcc+Progress,_GlobalParameters,_Behavior);
+championship(ExoSelf,Specie_Id,[],FitnessAcc,AffectProgress,_GlobalParameters,_Behavior)->
 	FitnessType = void,
 	U_FitnessAcc = case get(fitness_acc) of
 		undefined ->

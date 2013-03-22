@@ -94,8 +94,8 @@ neuron(S,[{IPid,_IVL}|I],IAcc)->
 					MutationP = 1/math:sqrt(length(DWP)),%TODO: Find a better way to find the length of DWP, perhaps calculate it once and store.
 					Perturbed_DWP=perturb_DWP(DWP,MutationP,DMultiplier,[]);
 %					io:format("Mutating DWP:~p to Updated_DW:~p~n",[DWP,Updated_DWP]),
-				modular ->
-					Perturbed_DWP=modular_perturb_(DWP,DMultiplier,[])
+				circuit ->
+					Perturbed_DWP=circuit:perturb_circuit(DWP,DMultiplier)
 			end,	
 			U_S=S#state{
 				si_dwp_bl=Perturbed_DWP,
@@ -180,7 +180,7 @@ neuron(S,[{IPid,_IVL}|I],IAcc)->
 			%io:format("terminate~n"),
 %			io:format("terminate:~p DWP:~p~n",[Neuron_Id,DWP]),
 			done
-		%after 10000 ->
+		%after 100000 ->
 			%io:format("NeuronStuck:~p~n",[{ExoSelf,Neuron_Id,{[{IPid,_IVL}|I],IM},IAcc,{[OPid|O],OM},LT,EF,DWP,RO}])
 	end;
 neuron(S,[],IAcc)->
@@ -194,12 +194,19 @@ neuron(S,[],IAcc)->
 	Plasticity = S#state.plasticity,
 	case S#state.neural_type of
 		standard ->
-			Out = postprocessor:PostProc(functions:AF(signal_integrator:SigInt(preprocessor:PreProc(DIV),WeightsP))),
+			Out = case AF of
+				_ ->
+					postprocessor:PostProc(functions:AF(signal_integrator:SigInt(preprocessor:PreProc(DIV),WeightsP)))
+			end,
 			Output=functions:sat(Out,1,-1),
+			U_DWP = plasticity:Plasticity(DIV,Output,WeightsP),
 			fanout(S#state.o,{self(),forward,[Output]});
-		modular ->
-			Out = neuron:modular(DIV,WeightsP),
+		circuit ->
+			%io:format("Here~p~n",[{self(),DIV,WeightsP}]),
+			Out = circuit:transfer_function(DIV,WeightsP,AF,Plasticity),
+			%io:format("Out:~p~n",[{self(),Out}]),
 			Output=functions:sat(Out,1,-1),
+			U_DWP = WeightsP,
 			fanout(S#state.o,{self(),forward,[Output]})			
 		%hebbian ->
 		%	Out = postprocessor:none(activation_function:AF(signal_integrator:SigInt(preprocessor:PreProc(Input),Weights))),
@@ -214,16 +221,8 @@ neuron(S,[],IAcc)->
 		%	Output=functions:sat(Out,1,-1),
 		%	fanout(O,{self(),forward,[Output]})
 	end,
-	U_DWP = plasticity:Plasticity(DIV,Output,WeightsP),
 	U_S=S#state{si_dwp_current=U_DWP},
 	neuron:neuron(U_S,U_S#state.i,[]).
-	
-	modular(DIV,Module)->
-		%[[{AF,Weights}...{AF,Weights}],[...],[{AF,Weights}]],
-		[{AF1,Weights1},{AF2,Weights2},{AF3,Weights3}] = Module,
-		Out1 = functions:AF1(signal_integrator:dot(DIV,Weights1)),
-		Out2 = functions:AF2(signal_integrator:dot(DIV,Weights1)),
-		
 	
 %%==================================================================== Internal Functions
 fanout([Pid|Pids],Msg)->
@@ -253,14 +252,14 @@ perturb_DWP([],_MutationP,_DMultiplier,Acc)->
 	lists:reverse(Acc).
 
 	perturb_WPC([{W,W1,W2}|WPC],MutationP,DMultiplier,Acc)->
-		{M_W,M_W1,M_W2} = {perturb_W(W,MutationP,DMultiplier),W1,W2},
+		{M_W,M_W1,M_W2} = {perturb_W(W,MutationP,DMultiplier),perturb_W(W1,MutationP,DMultiplier),perturb_W(W2,MutationP,DMultiplier)},
 		perturb_WPC(WPC,MutationP,DMultiplier,[{M_W,M_W1,M_W2}|Acc]);
 	perturb_WPC([],_MutationP,_DMultiplier,Acc)->
 		lists:reverse(Acc).
 		
 		perturb_W(W,MutationP,DMultiplier)->
 			%DMultiplier = ?DELTA_MULTIPLIER,
-			WLimit = ?SAT_LIMIT,
+			WLimit = ?SAT_LIMIT*10,
 			case random:uniform() < MutationP of
 				true ->
 					DW = (random:uniform()-0.5)*DMultiplier,

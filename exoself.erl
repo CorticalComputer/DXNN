@@ -14,7 +14,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3, g/1]).
 %% gen_server support_functions
 -export([extract_CurGenNIds/4, extract_NWeightCount/2]).
--record(state, {op_mode,id,pm_pid,dx,active_nids,ids_n_pids,cx_id,start_time,generation}).
+-record(state, {op_mode,id,pm_pid,dx,active_nids,ids_n_pids,cx_id,start_time,generation,behavioral_trace}).
 -behaviour(gen_server).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Exoself Options %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -define(MAX_TRIALS_TYPE,individual). %[const,individual,population]
@@ -82,7 +82,7 @@ init({OpMode,DX_Id,MT,PM_PId}) ->
 		const ->
 			10;
 		individual ->
-			10 + functions:sat(round(math:sqrt(Tot_ActiveNeuron_Weights)),100,0);
+			15 + round(math:sqrt(Tot_ActiveNeuron_Weights));
 		population ->
 			MT;
 		dx ->
@@ -230,13 +230,12 @@ handle_call({weight_revert},{Cx_PId,_Ref}, S)->
 	[ets:lookup_element(IdsNPids,NId,2) ! {self(),gt,weight_revert} || NId <- DX#dx.n_ids],
 	{reply, done, S};
 
-handle_call({backup_request,GlobalParameters},{Cx_PId,_Ref},S)->
+handle_call({backup_request,GlobalParameters,Behavioral_Trace},{Cx_PId,_Ref},S)->
 	DX=S#state.dx,
 	IdsNPids = S#state.ids_n_pids,
-	
 	backup_DX(DX,IdsNPids,GlobalParameters),
 	io:format("Backup of DX: ~p completed.~n",[DX#dx.id]),
-	{reply, done, S};
+	{reply, done, S#state{behavioral_trace=Behavioral_Trace}};
 
 handle_call(memory_reset,{Cx_PId,_Ref},S)->
 	DX=S#state.dx,
@@ -279,7 +278,8 @@ handle_cast({Cx_Pid,fitness,{FitnessType,Fitness,Goal_Status}},S)->
 	mnesia:dirty_write(DX#dx{
 		main_fitness = Main_Fitness,
 		fitness = Fitness,
-		profile = Profile
+		profile = Profile,
+		behavioral_trace = S#state.behavioral_trace
 	}),
 	TimeElapsed = integer_to_list(timer:now_diff(now(),StartTime)),
 	io:format("DX_Id:~p::~n OpMode:~p~n TimeElapsed:~pus~n FType:~p~n Fitness:~p~n FProfile:~p~n",[DX#dx.id,OpMode,TimeElapsed,FitnessType,Fitness,Profile]),
@@ -454,7 +454,7 @@ link_CerebralUnits(DX,IdsNPids,OpMode,Smoothness)->
 		NDWP = case N#neuron.type of
 			standard ->
 				[{ets:lookup_element(IdsNPids,Id,2),WPC} || {Id,WPC} <- N#neuron.dwp];
-			bst ->
+			circuit ->
 				N#neuron.dwp
 		end,
 		%io:format("I_PIds:~p~n NDWP:~p~n",[I_PIds,NDWP]),
@@ -541,7 +541,7 @@ backup_DX(DX,IdsNPIds,GlobalParameters) ->
 				DWP = case N#neuron.type of
 					standard ->
 						[{ets:lookup_element(IdsNPids,PId,2),WPC} || {PId,WPC} <- NDWP];
-					bst ->
+					circuit ->
 						NDWP
 				end,
 				mnesia:dirty_write(neuron,N#neuron{
@@ -636,7 +636,12 @@ extract_CurGenNIds([],_Generation,_AgeLimit,Acc)->
 extract_NWeightCount([N_Id|CurGenN_Ids],Acc)->
 	[N] = mnesia:dirty_read({neuron,N_Id}),
 	DWP = N#neuron.dwp,
-	TotWeights = count_weights(DWP,0),
+	TotWeights = case N#neuron.type of
+		standard ->
+			count_weights(DWP,0);
+		circuit ->
+			lists:sum(lists:flatten([[length(Neurode#neurode.weights)||Neurode<-Layer]||Layer <-DWP]))
+	end,
 	extract_NWeightCount(CurGenN_Ids,TotWeights+Acc);
 extract_NWeightCount([],Acc)->
 	Acc.

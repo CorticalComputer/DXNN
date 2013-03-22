@@ -100,6 +100,8 @@ draw_avatar(Canvas,Avatar)->
 	%draw_stats(Canvas,Avatar),
 	Avatar#avatar{objects=U_Objects}.
 	
+	draw_objects(Canvas,[skip|Objects],Acc)->
+		draw_objects(Canvas,Objects,Acc);
 	draw_objects(Canvas,[Object|Objects],Acc)->
 		{ObjName,_IdPlaceHolder,Color,Pivot,Coords,Parameter} = Object,		
 		Id = case ObjName of

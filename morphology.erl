@@ -188,7 +188,24 @@ flatlander(sensors)->
 
 %-record(sensor,{name,id,format,tot_vl,parameters,objects=[],vis=[]}).
 %-record(actuator,{name,id,format,tot_vl,parameters,objects=[],vis=[]}).
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Prey %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Prey %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+deceptive(actuators)->
+	Movement = [#actuator{name=two_wheels,id=cell_id,format=no_geo,tot_vl=2,parameters=[2]}];
+deceptive(sensors)->
+	Pi = math:pi(),
+	Distance_Scanners = [#sensor{name=distance_scanner_range,id=cell_id,format=no_geo,tot_vl=Density+1,parameters=[Spread,Density,ROffset]} || 
+		Spread<-[Pi/2],Density<-[5], ROffset<-[Pi*0/2]],
+	Color_Scanners = [#sensor{name=color_scanner_range,id=cell_id,format=no_geo,tot_vl=Density+1,parameters=[Spread,Density,ROffset]} ||
+		Spread <-[Pi/2], Density <-[5], ROffset<-[Pi*0/2]].
+
+target_seeker(actuators)->
+	Movement = [#actuator{name=two_wheels,id=cell_id,format=no_geo,tot_vl=2,parameters=[2]}];
+target_seeker(sensors)->
+	Pi = math:pi(),
+	Distance_Scanners = [#sensor{name=distance_scanner_range,id=cell_id,format=no_geo,tot_vl=Density+1,parameters=[Spread,Density,ROffset]} || 
+		Spread<-[Pi/2],Density<-[5], ROffset<-[Pi*0/2]].
+		
 prey(actuators)->
 	Movement = [#actuator{name=two_wheels,id=cell_id,format=no_geo,tot_vl=2,parameters=[2]}],
 	Cloning = [#actuator{name=create_offspring,id=cell_id,format=no_geo,tot_vl=1,parameters=[1]}],
@@ -224,7 +241,24 @@ prey(sensors)->
 	Beacons = [#sensor{name=Name,id=cell_id,format=no_geo,tot_vl=4,parameters=[4]} || Name <- [guard]],
 	%Communications = [{sensor,hear,cell_id,no_geo,Density,[Spread,Density,ROffset]} || Spread <-[Pi/2], Density <-[10], ROffset<-[Pi*0/2]],
 	%lists:append([Coned_Scanners,Distance_Scanners,Color_Scanners,Stat_Readers]).
-	Color_Scanners++Distance_Scanners++Orders++Beacons.%++Communications.%++Energy_Scanners++Stat_Readers.
+	Distance_Scanners.%++Communications.%++Energy_Scanners++Stat_Readers.
+
+food_gathering(actuators)->
+	[#actuator{name=two_wheels,id=cell_id,format=no_geo,tot_vl=2,parameters=[2]}];
+food_gathering(sensors)->
+	Pi = math:pi(),
+	[#sensor{name=distance_scanner,id=cell_id,format=no_geo,tot_vl=Density,parameters=[Spread,Density,ROffset]} || Spread<-[Pi/2],Density<-[5], ROffset<-[Pi*0/2]].
+	
+dangerous_food_gathering(actuators)->
+	[#actuator{name=two_wheels,id=cell_id,format=no_geo,tot_vl=2,parameters=[2]}];
+dangerous_food_gathering(sensors)->
+	Pi = math:pi(),
+	Distance_Scanners = [#sensor{name=distance_scanner,id=cell_id,format=no_geo,tot_vl=Density,parameters=[Spread,Density,ROffset]} || 
+		Spread<-[Pi/2],Density<-[5], ROffset<-[Pi*0/2]],
+	%Distance_Scanners =[{sensor,distance_scaner,cell_id,no_geo,Density,[Spread,Density,ROffset]} || Spread <-[Pi/2], Density <-[10], ROffset<-[Pi*0/2]],
+	Color_Scanners = [#sensor{name=color_scanner,id=cell_id,format=no_geo,tot_vl=Density,parameters=[Spread,Density,ROffset]} ||
+		Spread <-[Pi/2], Density <-[5], ROffset<-[Pi*0/2]],
+	Distance_Scanners++Color_Scanners.
 
 epitopes(actuators)->
 	SequenceLength=336,
@@ -286,6 +320,16 @@ aart_classifier(sensors)->
 		glass
 	],
 	[#sensor{name=aart_classifier,id=cell_id,format=no_geo,tot_vl=SeqLen,parameters=Parameters}].
+
+xorandxor(actuators)->
+	[#actuator{name=xorandxor,id=cell_id,format=no_geo,tot_vl=1,parameters=[]}];
+xorandxor(sensors)->
+	[#sensor{name=xorandxor,id=cell_id,format=no_geo,tot_vl=4,parameters=[]}].
+
+discrete_tmaze(actuators)->
+	[#actuator{name=dtm_SendOutput,id=cell_id,format=no_geo,tot_vl=1,parameters=[]}];
+discrete_tmaze(sensors)->
+	[#sensor{name=dtm_GetInput,id=cell_id,format=no_geo,tot_vl=4,parameters=[all]}].
 
 create_format(Type,Precurser)->
 	case Type of

@@ -608,8 +608,8 @@ list2plane(Type,VList,HRes,VRes,VMin,VMax)->
 		{void,void}->
 			LVMax1 = lists:max(VList),
 			LVMin1 = lists:min(VList),
-			LVMax =LVMax1+abs(LVMax1)/20,
-			LVMin =LVMin1-abs(LVMin1)/20,
+			LVMax = LVMax1+abs(LVMax1)/20,
+			LVMin = LVMin1-abs(LVMin1)/20,
 			VStep = (LVMax-LVMin)/VRes,
 			HStep = 2/HRes,
 			HMin = -1,
@@ -649,7 +649,7 @@ list2plane(Type,VList,HRes,VRes,VMin,VMax)->
 			LMax =LMax1+abs(LMax1-LMin1)/20,
 			LMin =LMin1-abs(LMax1-LMin1)/20,
 			Step = (LMax-LMin)/VRes,
-			VStartPos = LMin + Step/2,	
+			VStartPos = LMin + Step/2,
 			
 			%io:format("FXList:~p ~p ~p~n",[FXList,VStartPos,Step]),
 			l2fx(HRes*VRes,{FXList,FXList},VStartPos,Step,[])

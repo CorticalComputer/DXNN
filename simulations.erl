@@ -155,17 +155,43 @@ pole2_balancing1(SensorId,Parameter)->
 			Scaled_CVel = functions:scale(S#pb_state.cvel,10,-10),
 			Scaled_PAngle1 = functions:scale(S#pb_state.p1_angle,AngleLimit,-AngleLimit),
 			Scaled_PAngle2 = functions:scale(S#pb_state.p2_angle,AngleLimit,-AngleLimit),
+			P1_Vel = S#pb_state.p1_vel,
+			P2_Vel = S#pb_state.p2_vel,
+			case get(p1_vel) of
+				undefined ->
+					put(p1_vel,P1_Vel);
+				OldMax1 ->
+					case P1_Vel > OldMax1 of
+						true ->
+							put(p1_vel,P1_Vel);
+						false ->
+							ok
+					end
+			end,
+			case get(p2_vel) of
+				undefined ->
+					put(p2_vel,P2_Vel);
+				OldMax2 ->
+					case P2_Vel > OldMax2 of
+						true ->
+							put(p2_vel,P2_Vel);
+						false ->
+							ok
+					end
+			end,
+			io:format("P1_Vel:~p P2_Vel:~p~n",[get(p1_vel),get(p2_vel)]),
+			
 			SenseSignal=case Parameter of
 				cpos -> [Scaled_CPosition];
 				cvel -> [Scaled_CVel];
 				p1_angle -> [Scaled_PAngle1];
-				p1_vel -> [S#pb_state.p1_vel];
+				p1_vel -> [P1_Vel];
 				p2_angle -> [Scaled_PAngle2];
-				p2_vel -> [S#pb_state.p2_vel];
+				p2_vel -> [P2_Vel];
 				2 -> [Scaled_CPosition,Scaled_PAngle1];
 				3 -> [Scaled_CPosition,Scaled_PAngle1,Scaled_PAngle2];
-				4 -> [Scaled_CPosition,Scaled_CVel,Scaled_PAngle1,S#pb_state.p1_vel];
-				6 -> [Scaled_CPosition,Scaled_CVel,Scaled_PAngle1,Scaled_PAngle2,S#pb_state.p1_vel,S#pb_state.p2_vel]
+				4 -> [Scaled_CPosition,Scaled_CVel,Scaled_PAngle1,P1_Vel];
+				6 -> [Scaled_CPosition,Scaled_CVel,Scaled_PAngle1,Scaled_PAngle2,P1_Vel,P2_Vel]
 			end.
 %			From_PId ! {self(),percept,SenseSignal},
 %			scape:pb_sim(ExoSelf_PId,S);
@@ -300,6 +326,31 @@ pole2_balancing(SensorId,Parameter)->
 	Scaled_CVel = functions:scale(CVel,10,-10),
 	Scaled_PAngle1 = functions:scale(PAngle1,AngleLimit,-AngleLimit),
 	Scaled_PAngle2 = functions:scale(PAngle2,AngleLimit,-AngleLimit),
+	%Scaled_PVel1 = functions:scale(PVel1,5,-5),
+	%Scaled_PVel2 = functions:scale(P2,10,-10),
+%			case get(p1_vel) of
+%				undefined ->
+%					put(p1_vel,PVel1);
+%				OldMax1 ->
+%					case PVel1 < OldMax1 of
+%						true ->
+%							put(p1_vel,PVel1);
+%						false ->
+%							ok
+%					end
+%			end,
+%			case get(p2_vel) of
+%				undefined ->
+%					put(p2_vel,PVel2);
+%				OldMax2 ->
+%					case PVel2 < OldMax2 of
+%						true ->
+%							put(p2_vel,PVel2);
+%						false ->
+%							ok
+%					end
+%			end,
+%			io:format("P1_Vel:~p P2_Vel:~p~n",[get(p1_vel),get(p2_vel)]),
 	case Parameter of
 		cpos -> [Scaled_CPosition];
 		cvel -> [Scaled_CVel];
@@ -338,7 +389,7 @@ pole2_balancing(ExoSelf,F,ActuatorId,Parameters)->
 			end,
 			{1,0};
 		false ->
-			Fitness = case with_damping of
+			Fitness = case without_damping of
 				without_damping ->
 					1;
 				with_damping ->

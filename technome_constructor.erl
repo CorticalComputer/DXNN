@@ -9,10 +9,10 @@
 -compile(export_all).
 -include("records.hrl").
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Technome_Constructor Options %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--define(TEST_CONSTRAINT,#constraint{morphology=pole2_balancing3,sc_types=[neural],sc_hypercube_plasticity=[none], sc_neural_linkform=recursive, neural_afs = [tanh],neural_signal_integrators=[complex_dot]}).%pole2_balancing3}).
+-define(TEST_CONSTRAINT,#constraint{morphology=xorandxor,sc_types=[neural],sc_hypercube_plasticity=[none], sc_neural_linkform=feedforward, neural_afs = [cplx],neural_signal_integrators=[dot],neural_types = [standard]}).%pole2_balancing3}).
 -define(INIT_CONSTRAINTS,[#constraint{morphology=Morphology,sc_types=SC_Types, sc_hypercube_plasticity=[none], sc_neural_linkform=LinkForm, neural_afs = [tanh],neural_signal_integrators=[complex_dot]}|| Morphology<-[epiwalker],LinkForm<-[recursive], SC_Types<-[[aart]]]).
 %%%NEURON PARAMETERS
-%-define(NEURO_TYPES,[standard]).%[standard,bst],
+%-define(NEURO_TYPES,[standard]).%[standard,circuit],
 %-define(NEURO_ADAPTERS,[none]). %[none,modulated]
 %-define(ACTIVATION_FUNCTIONS,[tanh,gaussian,sin,absolute,sgn,linear,log,sqrt]). %[tanh,gaussian,sin,linear,absolute,sgn,log,sqrt]
 %%%DX PARAMETERS
@@ -193,7 +193,7 @@ clone_dx(DX_Id,CloneDX_Id)->
 		CloneDWP = case N#neuron.type of
 			standard ->
 				[{ets:lookup_element(TableName,Id,2),WPC} || {Id,WPC} <- N#neuron.dwp];
-			bst ->
+			circuit ->
 				N#neuron.dwp
 		end,
 		CloneSU_Id = ets:lookup_element(TableName,N#neuron.su_id,2),
@@ -214,6 +214,14 @@ generate_UniqueId()->
 	1/(MegaSeconds*1000000 + Seconds + MicroSeconds/1000000).
 
 construct_Neuron(SU_Id,Generation,N_Id,{N_TotIVL,N_I},{N_TotOVL,N_O},SpeCon,Neural_Type,Heredity_Type)->
+	AF=generate_NeuralAF(SpeCon#constraint.neural_afs,Neural_Type,N_Id),
+	DWP=case Neural_Type of
+		circuit ->
+			create_circuit(N_TotIVL,[2,1],AF);
+			%create_circuit(N_TotIVL,[1+random:uniform(round(math:sqrt(N_TotIVL))),1]);
+		standard ->
+			create_NWP(N_I,[])
+	end,
 	Neuron = #neuron{
 		id = N_Id,
 		type = Neural_Type,
@@ -225,17 +233,30 @@ construct_Neuron(SU_Id,Generation,N_Id,{N_TotIVL,N_I},{N_TotOVL,N_O},SpeCon,Neur
 		%lt = LearningType,
 		preprocessor = generate_NeuralPreprocessor(SpeCon#constraint.neural_preprocessors,Neural_Type,N_Id),
 		signal_integrator = generate_NeuralSignalIntegrator(SpeCon#constraint.neural_signal_integrators,Neural_Type,N_Id),
-		activation_function=generate_NeuralAF(SpeCon#constraint.neural_afs,Neural_Type,N_Id),
+		activation_function=AF,
 		postprocessor = generate_NeuralPostprocessor(SpeCon#constraint.neural_postprocessors,Neural_Type,N_Id),
 		plasticity=generate_NeuralPF(SpeCon#constraint.neural_pfs,Neural_Type,N_Id),
 		ro = calculate_RO(SU_Id,N_Id,N_O,[]),
-		dwp = create_NWP(N_I,[]),
+		dwp = DWP,
 		su_id = SU_Id,
 		generation = Generation
 	},
 %	io:format("~p~n",[Neuron]),
 	mnesia:write(Neuron).
-		
+	
+	create_circuit(IVL,Densities,AF)->create_circuit(IVL,Densities,AF,[]).
+	create_circuit(IVL,[VL|Densities],AF,Acc)->
+		{Weights,Parameters} = case AF of
+			rbf ->
+				{[random:uniform()-0.5|| _<-lists:seq(1,IVL)],[random:uniform()]};
+			_ ->
+				{[random:uniform()-0.5|| _<-lists:seq(1,IVL)],[]}
+		end,
+		Layer=[#neurode{id=technome_constructor:generate_UniqueId(),af=AF,weights=Weights} || _<-lists:seq(1,VL)],
+		create_circuit(length(Layer),Densities,AF,[Layer|Acc]);
+	create_circuit(_IVL,[],_AF,Acc)->
+		lists:reverse(Acc).
+	
 	generate_NeuralPF(Available_PFs,NeuralType,N_Id) -> generate_NeuralPF(Available_PFs,NeuralType,N_Id,[]).
 	generate_NeuralPF(Available_PlasticityFunctions,NeuralType,N_Id,Not_PFs)->
 		Available_PFs=case NeuralType of
@@ -309,6 +330,8 @@ construct_Neuron(SU_Id,Generation,N_Id,{N_TotIVL,N_I},{N_TotOVL,N_O},SpeCon,Neur
 				end;
 			higher_order ->
 				[tanh];
+			circuit ->
+				Available_ActivationFunctions;
 			_ ->
 				[tanh]
 			
@@ -393,7 +416,7 @@ construct_Neuron(SU_Id,Generation,N_Id,{N_TotIVL,N_I},{N_TotOVL,N_O},SpeCon,Neur
 			create_Weights(IVL-1,[weight_tuple()|WeightsAcc]).
 			
 			weight_tuple()->
-				{random:uniform(),0,0}.
+				{random:uniform(),random:uniform(),random:uniform()}.
 
 			null_wt()->
 				{1,1,0}.

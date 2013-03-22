@@ -50,9 +50,7 @@ init(Pid,InitState)->
 %%                         {stop, Reason}
 %% Description: Initiates the server
 %%--------------------------------------------------------------------
-%-record(polis,{id,scape_ids=[],population_ids=[],specie_ids=[],dx_ids=[],parameters=[]}).
-%-record(scape,{id,scape_id,type,physics,metabolics,avatars=[],plants=[],walls=[],laws=[],anomolies=[],artifacts=[],objects=[],elements=[],atoms=[],borders=[]}).
-%-record(avatar,{id,morphology,type,team,energy,sound,gestalt,age=0,kills=0,loc,direction,r,objects,state,stats,actuators,sensors}).
+
 init(Parameters) ->
 	{A,B,C} = now(),
 	random:seed(A,B,C),
@@ -92,28 +90,55 @@ handle_call({actuator,AvatarType,Command,Output},{From_PId,_Ref},State)->
 			erase(From_PId),
 			io:format("Avatar:~p destroyed.~n",[From_PId]),
 			{{1,0},State};%TODO:Death Penelty
-		_ ->
+		_ ->%io:format("Action by:~p~n",[From_PId]),
 			Avatars = State#scape.avatars,
 			Avatar = lists:keyfind(From_PId, 2, Avatars),
 			U_Avatar = scape:Command(Avatar#avatar{kills=0},Output),
-		%	io:format("Avatar_Id:~p Energy:~p~n",[U_Avatar#avatar.id,U_Avatar#avatar.energy]),
-			case (U_Avatar#avatar.energy > 0) and (U_Avatar#avatar.age < 20000) of
-				true ->
-					Age = U_Avatar#avatar.age,
-					Fitness = case Age > 1000 of
+			%io:format("Avatar_Id:~p Energy:~p~n",[U_Avatar#avatar.id,U_Avatar#avatar.energy]),
+			case State#scape.type of
+				deceptive_private ->
+					case (Avatar#avatar.kills > 0) or (Avatar#avatar.age > 2000) of
 						true ->
-							0.001+Avatar#avatar.kills*1;
+							%final distance to target
+							%and if the plant was eaten.
+							%search for uneaten target (if present), calculat eucleadien distance between avatar loc and target loc. If not present, give full score.
+							Fitness = case (Avatar#avatar.kills > 0) of
+								true ->%io:format("HORRAY!~n"),
+									100;
+								false ->
+									Plant = lists:keyfind(plant, 5, Avatars),
+									{PX,PY} = Plant#avatar.loc,
+									{AX,AY} = Avatar#avatar.loc,
+									Distance = math:sqrt(math:pow(PX-AX,2) + math:pow(PY-AY,2)),
+									%io:format("Distance:~p~n",[{Distance,100/(Distance+1)}]),
+									100/(Distance+1)
+							end,
+							{{1,Fitness},destroy_avatar(From_PId,State)};
 						false ->
-							0.001+Avatar#avatar.kills*1
-					end,
-				%	io:format("Fitness:~p~n",[Fitness]),
-					%io:format("Avatar:~p has age:~p energy:~p and kills:~p~n",[U_Avatar#avatar.id,Age,U_Avatar#avatar.energy,U_Avatar#avatar.kills]),
-					{{0,Fitness},State#scape{avatars = collision_detection(U_Avatar,lists:keyreplace(From_PId, 2, Avatars, U_Avatar))}};
-				false ->
-%					io:format("Avatar:~p Destroyed:~n",[From_PId]),
-					io:format("Avatar:~p died at age:~p~n",[U_Avatar#avatar.id,U_Avatar#avatar.age]),
-					%io:format("Process info:~p~n",[process_info(self(),[message_queue_len,messages])]),
-					{{1,0},destroy_avatar(From_PId,State)}
+							{{0,0},State#scape{avatars = collision_detection(U_Avatar,lists:keyreplace(From_PId, 2, Avatars, U_Avatar))}}
+					end;
+				target_private ->
+					io:format("NOT IMPLEMENTED YET~n"),
+					not_implemented;
+				_ ->
+					case (U_Avatar#avatar.energy > 0) and (U_Avatar#avatar.age < 20000) of
+						true ->
+							Age = U_Avatar#avatar.age,
+							Fitness = case Age > 1000 of
+								true ->
+									0.001+Avatar#avatar.kills*1;
+								false ->
+									0.001+Avatar#avatar.kills*1
+							end,
+							%io:format("Fitness:~p~n",[Fitness]),
+							%io:format("Avatar:~p has age:~p energy:~p and kills:~p~n",[U_Avatar#avatar.id,Age,U_Avatar#avatar.energy,U_Avatar#avatar.kills]),
+							{{0,Fitness},State#scape{avatars = collision_detection(U_Avatar,lists:keyreplace(From_PId, 2, Avatars, U_Avatar))}};
+						false ->
+							%io:format("Avatar:~p Destroyed:~n",[From_PId]),
+							io:format("Avatar:~p died at age:~p~n",[U_Avatar#avatar.id,U_Avatar#avatar.age]),
+							%io:format("Process info:~p~n",[process_info(self(),[message_queue_len,messages])]),
+							{{1,0},destroy_avatar(From_PId,State)}
+					end
 			end
 	end,
 	{reply,FitnessP,U_State};
@@ -126,6 +151,7 @@ handle_call({get_all,avatars},{From_PId,_Ref},State)->
 		_ ->
 			State#scape.avatars
 	end,
+	%io:format("Sensing from:~p~n",[From_PId]),
 	{reply,Reply,State};
 handle_call(tick,{From_PId,_Ref},State)->
 	Avatars = State#scape.avatars,
@@ -508,7 +534,13 @@ create_avatar(Morphology,Specie_Id,Id,{CF,CT,TotNeurons},void,InitEnergy) when (
 			%io:format("Creating Prey:~n CF:~p~n CT:~p~n",[CF,CT]),
 			%{CF,CT,TotNeurons} = Stats,
 			Direction = {DX,DY} = {1/math:sqrt(2),1/math:sqrt(2)},
-			{X,Y} = {random:uniform(800),random:uniform(500)},
+			{X,Y} = case get(scape_type) of
+				deceptive_private ->
+					{550,125};
+				_ ->
+					{random:uniform(800),random:uniform(500)}
+			end,
+			%{X,Y} = {random:uniform(800),random:uniform(500)},
 			Energy =case InitEnergy of
 				undefined -> 
 					1000;
@@ -740,7 +772,12 @@ destroy_avatar(From_PId,State)->
 
 respawn_avatar(A)->
 %	io:format("Respawning:~p~n",[A]),
-	{X,Y} = {random:uniform(800),random:uniform(500)},
+	{X,Y} = case get(scape_type) of
+		deceptive_private ->
+			{550,325};
+		_ ->
+			{random:uniform(800),random:uniform(500)}
+	end,
 	case A#avatar.type of
 		plant ->
 			A#avatar{
@@ -759,8 +796,13 @@ respawn_avatar(A)->
 respawn_avatar(Avatars,A)->
 %	io:format("Respawning:~p~n",[A]),
 	%{X,Y} = {random:uniform(800),random:uniform(800)},
-	OAvatars = [A || A <- Avatars, (A#avatar.type==rock) or (A#avatar.type==pillar) or (A#avatar.type==fire_pit)],
-	{X,Y} = return_valid(OAvatars),
+	{X,Y} = case get(scape_type) of
+		deceptive_private ->
+			{550,325};
+		_ ->
+			OAvatars = [A || A <- Avatars, (A#avatar.type==rock) or (A#avatar.type==pillar) or (A#avatar.type==fire_pit)],
+			return_valid(OAvatars)
+	end,
 	case A#avatar.type of
 		plant ->
 			A#avatar{

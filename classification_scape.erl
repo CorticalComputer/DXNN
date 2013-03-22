@@ -23,7 +23,8 @@
 	tn=0,
 	fp=0,
 	fn=0,
-	tot=0
+	tot=0,
+	err=0
 }).
 
 start()->io:format("Start~n"),
@@ -103,6 +104,24 @@ classify_act([OutputLabel])->
 			put(classification_state,S#cstate{seqPs={List,TN},tot=U_Tot,tp=U_TP}),
 			{0,0}
 	end.
+
+classify_glass([Output])->
+	S = get(classification_state),
+	{[{Seq,Label,Reward}|List],TN} = S#cstate.seqPs,
+	%io:format("Acting~n"),
+	Err = math:pow(Output-Label,2),
+	U_TP=S#cstate.tp+Err,
+	U_Tot = S#cstate.tot+1,
+	Progress = case List of
+		[] ->
+			put(classification_state,S#cstate{seqPs={List,TN},tot=0,tp=0}),
+			Fitness=1/U_TP,
+			{1,Fitness};
+		_ ->
+			put(classification_state,S#cstate{seqPs={List,TN},tot=U_Tot,tp=U_TP}),
+			{0,0}
+	end.
+
 
 %Converts the provided database into a a list with rewards and labes, used by the loop.
 compose_list(TableName,Modes)->

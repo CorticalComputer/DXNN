@@ -50,6 +50,24 @@ init(World_Type,Physics,Metabolics)->
 			Walls = lists:append(create_walls(),create_pillars()),
 			Scape_Physics = [],
 			Plants++Walls;
+		target_private ->%A room with 10 objects, all of which must be gathered. The fitness is how many have been consumed.
+			Plants=[scape:create_avatar(plant,plant,gen_id(),{undefined,undefined},respawn,Metabolics)||_<-lists:duplicate(10,1)],
+			Plants;
+		deceptive_private ->%A room with the agent spawned in a specific location, and on the other side of the room a |_| shapped wall, behind which a plan is hidden. The goal is to get it, the fitness is final distance to object.
+			put(scape_type,deceptive_pivate),
+			Walls = create_walls(deceptive_private),
+			Plants=[scape:create_avatar(plant,plant,gen_id(),{undefined,{550,325}},respawn,Metabolics)],
+			Plants++Walls;
+		food_gathering ->
+			Plants=[scape:create_avatar(plant,plant,gen_id(),{undefined,undefined},respawn,Metabolics)||_<-lists:duplicate(10,1)],
+			%Poisons=[scape:create_avatar(poison,poison,gen_id(),{undefined,undefined},respawn,Metabolics)||_<-lists:duplicate(10,1)],
+			Plants;
+		dangerous_food_gathering ->
+			Plants=[scape:create_avatar(plant,plant,gen_id(),{undefined,undefined},respawn,Metabolics)||_<-lists:duplicate(10,1)],
+			InitLoc=undefined,
+			InitEnergy=-20000,
+			Poisons=[scape:create_avatar(poison,poison,gen_id(),{InitEnergy,InitLoc},respawn,Metabolics)||_<-lists:duplicate(10,1)],
+			Plants++Poisons;
 		multi_agent ->
 			[]
 	end.
@@ -415,7 +433,15 @@ create_walls()->
 		{x_wall,{500,450,500}}
 	],	
 	[scape:create_avatar(wall,wall,gen_id(),undefined,Section_Loc,undefined) || Section_Loc <- Sections].
-	
+
+create_walls(deceptive_private)->
+	Sections =[
+		{x_wall,{300,300,800}},
+		{y_wall,{300,300,400}},
+		{y_wall,{800,300,400}}
+	],
+	[scape:create_avatar(wall,wall,gen_id(),undefined,Section_Loc,undefined) || Section_Loc <- Sections].
+
 create_firepits()->
 	FirePits=[
 		%{100,100,50,inf},
